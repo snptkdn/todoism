@@ -1,3 +1,5 @@
+mod tui;
+
 use clap::Parser;
 use todoism_core::{greet, Task, FileTaskRepository, TaskRepository, parse_args, expand_key, parse_human_date, Priority};
 use anyhow::{Result};
@@ -8,7 +10,7 @@ use std::collections::HashMap;
 #[command(about = "A robust CLI task manager", long_about = None)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(clap::Subcommand)]
@@ -23,6 +25,8 @@ enum Commands {
     },
     /// List all tasks
     List,
+    /// Open the Terminal User Interface
+    Tui,
 }
 
 fn parse_priority(pri_str: &str) -> Priority {
@@ -42,10 +46,10 @@ fn main() -> Result<()> {
     let known_keys = vec!["due", "project", "priority", "description", "estimate"];
 
     match cli.command {
-        Commands::Greet => {
+        Some(Commands::Greet) => {
             println!("{}", greet());
         },
-        Commands::Add { args } => {
+        Some(Commands::Add { args }) => {
             if args.is_empty() {
                 println!("Error: Task name is required.");
                 return Ok(());
@@ -106,7 +110,7 @@ fn main() -> Result<()> {
             }
             println!("  Priority: {:?}", created_task.priority);
         },
-        Commands::List => {
+        Some(Commands::List) => {
             let tasks = repo.list()?;
             if tasks.is_empty() {
                 println!("No tasks found.");
@@ -116,7 +120,7 @@ fn main() -> Result<()> {
                 
                 for task in tasks {
                     let id_str = task.id.to_string();
-                    let short_id = if id_str.len() > 8 { &id_str[..8] } else { &id_str }; // Show first 8 chars of ID
+                    let short_id = if id_str.len() > 8 { &id_str[..8] } else { &id_str }; 
                     let pri = format!("{:?}", task.priority);
                     let due = task.due.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "-".to_string());
                     let project = task.project.unwrap_or_else(|| "-".to_string());
@@ -130,6 +134,18 @@ fn main() -> Result<()> {
                     );
                 }
             }
+        },
+        Some(Commands::Tui) => {
+            tui::run()?;
+        },
+        None => {
+            // Default behavior if no command provided: Open TUI (or show help)
+            // User prefers TUI, so let's launch TUI by default?
+            // "実際使うのはcliじゃなくてtuiだと思う" -> implied preference.
+            // But let's stick to explicit first, or maybe explicit TUI command.
+            // Let's print help for now to be safe, or just run TUI?
+            // I'll make it run TUI by default as per "CLIじゃなくてTUI" hint.
+            tui::run()?;
         }
     }
     Ok(())
