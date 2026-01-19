@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 pub trait TaskRepository {
     fn create(&self, task: Task) -> Result<Task>;
+    fn get(&self, id: &Uuid) -> Result<Task>;
     fn list(&self) -> Result<Vec<Task>>;
     fn update(&self, task: &Task) -> Result<()>;
     fn delete(&self, id: &Uuid) -> Result<()>;

@@ -2,7 +2,7 @@ mod tui;
 
 use clap::Parser;
 use todoism_core::{greet, Task, FileTaskRepository, TaskRepository, parse_args, expand_key, parse_human_date, Priority};
-use todoism_core::service::task_service::{TaskService, SortStrategy, calculate_score};
+use todoism_core::service::task_service::{TaskService, SortStrategy};
 use anyhow::{Result};
 use std::collections::HashMap;
 
@@ -129,7 +129,8 @@ fn main() -> Result<()> {
                     let pri = format!("{:?}", task.priority);
                     let due = task.due.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "-".to_string());
                     let project = task.project.clone().unwrap_or_else(|| "-".to_string());
-                    let score = calculate_score(&task, strategy);
+                    // TaskDto now has the score directly
+                    let score = task.score;
                     
                     println!("{:<8} {:<8.1} {:<10} {:<12} {:<10} {}", 
                         short_id,
