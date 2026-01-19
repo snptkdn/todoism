@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 use serde_json;
+use uuid::Uuid;
 
 use crate::model::task::Task;
 use crate::repository::traits::TaskRepository;
@@ -67,5 +68,29 @@ impl TaskRepository for FileTaskRepository {
 
     fn list(&self) -> Result<Vec<Task>> {
         self.read_tasks()
+    }
+
+    fn update(&self, task: &Task) -> Result<()> {
+        let mut tasks = self.read_tasks()?;
+        if let Some(pos) = tasks.iter().position(|t| t.id == task.id) {
+            tasks[pos] = task.clone();
+            self.write_tasks(&tasks)?;
+            Ok(())
+        } else {
+            Err(anyhow!("Task with ID {} not found", task.id))
+        }
+    }
+
+    fn delete(&self, id: &Uuid) -> Result<()> {
+        let mut tasks = self.read_tasks()?;
+        let initial_len = tasks.len();
+        tasks.retain(|t| t.id != *id);
+        
+        if tasks.len() == initial_len {
+            return Err(anyhow!("Task with ID {} not found", id));
+        }
+
+        self.write_tasks(&tasks)?;
+        Ok(())
     }
 }

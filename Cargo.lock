@@ -1518,6 +1518,7 @@ dependencies = [
  "crossterm",
  "ratatui",
  "todoism-core",
+ "unicode-width",
 ]
 
 [[package]]

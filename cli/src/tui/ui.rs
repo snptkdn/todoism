@@ -6,8 +6,9 @@ use ratatui::{
     Frame,
 };
 use todoism_core::{Priority, Status};
+use unicode_width::UnicodeWidthStr;
 
-use crate::tui::app::App;
+use crate::tui::app::{App, InputMode};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let size = f.area();
@@ -19,7 +20,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .constraints([
             Constraint::Length(3), // Header
             Constraint::Min(1),    // Content
-            Constraint::Length(1), // Footer/Help
+            Constraint::Length(3), // Footer / Input
         ])
         .split(size);
 
@@ -42,11 +43,47 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     draw_task_list(f, app, content_chunks[0]);
     draw_detail_view(f, app, content_chunks[1]);
 
-    // Footer
-    let footer = Paragraph::new("j/k: Navigate | q: Quit")
-        .style(Style::default().fg(Color::DarkGray))
-        .alignment(Alignment::Center);
-    f.render_widget(footer, main_chunks[2]);
+    // Footer or Input
+    match app.input_mode {
+        InputMode::Normal => {
+            let footer = Paragraph::new("j/k: Navigate | Space: Toggle | d: Delete | a: Add | m: Mod | q: Quit")
+                .style(Style::default().fg(Color::DarkGray))
+                .alignment(Alignment::Center);
+            f.render_widget(footer, main_chunks[2]);
+        },
+        InputMode::Adding => {
+             let input = Paragraph::new(app.input.as_str())
+                .style(Style::default().fg(Color::Yellow))
+                .block(Block::default().borders(Borders::ALL).title(" Add Task "))
+                .alignment(Alignment::Left);
+            f.render_widget(input, main_chunks[2]);
+            
+            // Cursor
+            let cursor_x = app.input.chars().take(app.cursor_position).collect::<String>().width() as u16;
+            f.set_cursor_position(
+                (
+                    main_chunks[2].x + 1 + cursor_x,
+                    main_chunks[2].y + 1,
+                )
+            );
+        },
+        InputMode::Modifying => {
+             let input = Paragraph::new(app.input.as_str())
+                .style(Style::default().fg(Color::Green))
+                .block(Block::default().borders(Borders::ALL).title(" Modify Task "))
+                .alignment(Alignment::Left);
+            f.render_widget(input, main_chunks[2]);
+            
+            // Cursor
+            let cursor_x = app.input.chars().take(app.cursor_position).collect::<String>().width() as u16;
+            f.set_cursor_position(
+                (
+                    main_chunks[2].x + 1 + cursor_x,
+                    main_chunks[2].y + 1,
+                )
+            );
+        }
+    }
 }
 
 fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {
@@ -127,6 +164,10 @@ fn draw_detail_view(f: &mut Frame, app: &App, area: Rect) {
                 Line::from(vec![
                     Span::styled("Project: ", Style::default().fg(Color::Blue)),
                     Span::raw(task.project.as_deref().unwrap_or("None")),
+                ]),
+                Line::from(vec![
+                    Span::styled("Estimate: ", Style::default().fg(Color::Blue)),
+                    Span::raw(task.estimate.as_deref().unwrap_or("None")),
                 ]),
                 Line::from(""),
             ];
