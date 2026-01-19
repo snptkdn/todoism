@@ -146,7 +146,7 @@ fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {
 fn draw_detail_view(f: &mut Frame, app: &App, area: Rect) {
     if let Some(selected_index) = app.state.selected() {
         if let Some(task) = app.tasks.get(selected_index) {
-            let mut detail_text = vec![
+            let detail_text = vec![
                 Line::from(vec![
                     Span::styled("Title: ", Style::default().fg(Color::Blue)),
                     Span::styled(&task.name, Style::default().add_modifier(Modifier::BOLD)),
@@ -180,13 +180,12 @@ fn draw_detail_view(f: &mut Frame, app: &App, area: Rect) {
                     Span::styled("Estimate: ", Style::default().fg(Color::Blue)),
                     Span::raw(task.estimate.as_deref().unwrap_or("None")),
                 ]),
+                Line::from(vec![
+                    Span::styled("Description: ", Style::default().fg(Color::Blue)),
+                    Span::raw(task.description.as_deref().unwrap_or("None")),
+                ]),
                 Line::from(""),
             ];
-
-            if let Some(desc) = &task.description {
-                 detail_text.push(Line::from(Span::styled("Description:", Style::default().fg(Color::Blue))));
-                 detail_text.push(Line::from(desc.as_str()));
-            }
 
             let detail_block = Paragraph::new(detail_text)
                 .block(Block::default().title(" Detail ").borders(Borders::ALL).border_type(BorderType::Rounded))
