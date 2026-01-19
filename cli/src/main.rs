@@ -1,4 +1,5 @@
 mod tui;
+mod history;
 
 use clap::Parser;
 use todoism_core::{greet, Task, FileTaskRepository, TaskRepository, parse_args, expand_key, parse_human_date, Priority};
@@ -28,6 +29,8 @@ enum Commands {
     List,
     /// Open the Terminal User Interface
     Tui,
+    /// View completed task history (Timesheet)
+    History,
 }
 
 fn parse_priority_str(pri_str: &str) -> Priority {
@@ -142,6 +145,13 @@ fn main() -> Result<()> {
                     );
                 }
             }
+        },
+        Some(Commands::History) => {
+             // We create a new repo instance here to fetch all tasks.
+             // This is lightweight as it just points to the file.
+             let repo_for_history = FileTaskRepository::new(None)?;
+             let all_tasks = repo_for_history.list()?;
+             history::show_history(all_tasks);
         },
         Some(Commands::Tui) => {
             tui::run()?;
