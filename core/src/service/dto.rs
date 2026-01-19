@@ -63,3 +63,25 @@ impl TaskDto {
         }
     }
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct HistoryStats {
+    pub total_est_hours: f64,
+    pub total_act_hours: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DailyHistory {
+    pub date: String, // YYYY-MM-DD
+    pub day_of_week: String, // Mon, Tue...
+    pub tasks: Vec<TaskDto>,
+    pub stats: HistoryStats,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct WeeklyHistory {
+    pub year: i32,
+    pub week: u32,
+    pub days: Vec<DailyHistory>,
+    pub stats: HistoryStats,
+}

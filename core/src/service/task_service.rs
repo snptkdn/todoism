@@ -1,10 +1,11 @@
 use crate::model::task::{Task, Priority, TaskState};
 use crate::repository::TaskRepository;
 use crate::time::parse_duration;
-use crate::service::dto::TaskDto;
-use chrono::{Utc, Duration};
-use anyhow::{Result, anyhow};
+use crate::service::dto::{TaskDto, WeeklyHistory, DailyHistory, HistoryStats};
+use chrono::{Utc, Datelike, Local, NaiveDate, DateTime};
+use anyhow::Result;
 use uuid::Uuid;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SortStrategy {
@@ -100,6 +101,102 @@ impl<R: TaskRepository> TaskService<R> {
     pub fn sort(tasks: &mut Vec<Task>, strategy: SortStrategy) {
         sort_tasks(tasks, strategy);
     }
+
+    pub fn get_weekly_history(&self) -> Result<Vec<WeeklyHistory>> {
+        let tasks = self.repo.list()?;
+        let completed_tasks: Vec<&Task> = tasks.iter()
+            .filter(|t| matches!(t.state, TaskState::Completed { .. }))
+            .collect();
+
+        // Group by ISO Week
+        let mut tasks_by_week: HashMap<(i32, u32), Vec<&Task>> = HashMap::new();
+
+        for task in &completed_tasks {
+            if let TaskState::Completed { completed_at, .. } = &task.state {
+                let local_dt: DateTime<Local> = DateTime::from(*completed_at);
+                let iso_week = local_dt.iso_week();
+                let key = (iso_week.year(), iso_week.week());
+                tasks_by_week.entry(key).or_default().push(task);
+            }
+        }
+
+        let mut sorted_weeks: Vec<_> = tasks_by_week.keys().cloned().collect();
+        sorted_weeks.sort_by(|a, b| b.cmp(a));
+
+        let mut history = Vec::new();
+
+        for (year, week) in sorted_weeks {
+            let tasks_in_week = tasks_by_week.get(&(year, week)).unwrap();
+            
+            // Group by Day
+            let mut tasks_by_day: HashMap<NaiveDate, Vec<&Task>> = HashMap::new();
+             for task in tasks_in_week {
+                 if let TaskState::Completed { completed_at, .. } = &task.state {
+                    let local_dt: DateTime<Local> = DateTime::from(*completed_at);
+                    tasks_by_day.entry(local_dt.date_naive()).or_default().push(task);
+                }
+            }
+            
+            let mut sorted_days: Vec<_> = tasks_by_day.keys().cloned().collect();
+            sorted_days.sort_by(|a, b| b.cmp(a));
+            
+            let mut daily_histories = Vec::new();
+            let mut week_est_total = 0.0;
+            let mut week_act_total = 0.0;
+
+            for day in sorted_days {
+                let daily_tasks = tasks_by_day.get(&day).unwrap();
+                let mut day_dtos = Vec::new();
+                let mut day_est = 0.0;
+                let mut day_act = 0.0;
+
+                for task in daily_tasks {
+                    let est_hours = parse_est_hours(&task.estimate);
+                    let act_hours = if let TaskState::Completed { actual_duration, .. } = &task.state {
+                        *actual_duration as f64 / 3600.0
+                    } else {
+                        0.0
+                    };
+
+                    day_est += est_hours;
+                    day_act += act_hours;
+                    
+                    day_dtos.push(TaskDto::from_entity((*task).clone(), 0.0));
+                }
+                
+                week_est_total += day_est;
+                week_act_total += day_act;
+
+                daily_histories.push(DailyHistory {
+                    date: day.format("%Y-%m-%d").to_string(),
+                    day_of_week: day.format("%a").to_string(),
+                    tasks: day_dtos,
+                    stats: HistoryStats {
+                        total_est_hours: day_est,
+                        total_act_hours: day_act,
+                    }
+                });
+            }
+
+            history.push(WeeklyHistory {
+                year,
+                week,
+                days: daily_histories,
+                stats: HistoryStats {
+                    total_est_hours: week_est_total,
+                    total_act_hours: week_act_total,
+                }
+            });
+        }
+        
+        Ok(history)
+    }
+}
+
+fn parse_est_hours(est_opt: &Option<String>) -> f64 {
+    est_opt.as_ref()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0)
 }
 
 // Standalone functions for pure logic

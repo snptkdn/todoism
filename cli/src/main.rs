@@ -2,8 +2,9 @@ mod tui;
 mod history;
 
 use clap::Parser;
-use todoism_core::{greet, Task, FileTaskRepository, TaskRepository, parse_args, expand_key, parse_human_date, Priority};
+use todoism_core::{greet, Task, FileTaskRepository, parse_args, expand_key, parse_human_date, Priority};
 use todoism_core::service::task_service::{TaskService, SortStrategy};
+use todoism_core::repository::TaskRepository;
 use anyhow::{Result};
 use std::collections::HashMap;
 
@@ -147,11 +148,7 @@ fn main() -> Result<()> {
             }
         },
         Some(Commands::History) => {
-             // We create a new repo instance here to fetch all tasks.
-             // This is lightweight as it just points to the file.
-             let repo_for_history = FileTaskRepository::new(None)?;
-             let all_tasks = repo_for_history.list()?;
-             history::show_history(all_tasks);
+             history::show_history(&service)?;
         },
         Some(Commands::Tui) => {
             tui::run()?;
