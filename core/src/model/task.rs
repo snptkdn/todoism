@@ -2,30 +2,20 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum Priority {
     Low,
+    #[default]
     Medium,
     High,
 }
 
-impl Default for Priority {
-    fn default() -> Self {
-        Priority::Medium
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub enum Status {
+    #[default]
     Pending,
     Completed,
     Deleted,
-}
-
-impl Default for Status {
-    fn default() -> Self {
-        Status::Pending
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

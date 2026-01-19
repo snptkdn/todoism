@@ -24,11 +24,7 @@ impl App {
         let repo = FileTaskRepository::new(None).expect("Failed to initialize repository");
         let service = TaskService::new(repo);
         
-        let all_tasks = service.get_sorted_tasks(SortStrategy::Urgency).unwrap_or_default();
-        let tasks: Vec<TaskDto> = all_tasks.into_iter()
-            .filter(|t| t.status != "Completed" && t.status != "Deleted")
-            .collect();
-
+        let tasks = service.get_sorted_tasks(SortStrategy::Urgency).unwrap_or_default();
         let mut state = TableState::default();
         if !tasks.is_empty() {
             state.select(Some(0));
@@ -95,19 +91,6 @@ impl App {
         }
     }
 
-    pub fn toggle_tracking(&mut self) {
-        if let Some(i) = self.state.selected() {
-            if let Some(task) = self.tasks.get(i) {
-                if task.is_tracking {
-                    let _ = self.service.stop_task(&task.id);
-                } else {
-                    let _ = self.service.start_task(&task.id);
-                }
-            }
-            self.reload_tasks();
-        }
-    }
-
     pub fn delete_task(&mut self) {
         if let Some(i) = self.state.selected() {
             if let Some(task) = self.tasks.get(i) {
@@ -129,10 +112,7 @@ impl App {
 
     fn reload_tasks(&mut self) {
         if let Ok(tasks) = self.service.get_sorted_tasks(SortStrategy::Urgency) {
-            // Filter out completed and deleted tasks for the main view
-            self.tasks = tasks.into_iter()
-                .filter(|t| t.status != "Completed" && t.status != "Deleted")
-                .collect();
+            self.tasks = tasks;
         }
     }
 
@@ -226,7 +206,7 @@ impl App {
         new_task.description = description;
         new_task.estimate = estimate;
 
-        if let Ok(_) = self.service.create_task(new_task) {
+        if self.service.create_task(new_task).is_ok() {
              self.reload_tasks();
              if !self.tasks.is_empty() {
                  self.state.select(Some(0));

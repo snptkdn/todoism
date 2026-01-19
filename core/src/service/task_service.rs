@@ -5,17 +5,12 @@ use chrono::Utc;
 use anyhow::Result;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum SortStrategy {
+    #[default]
     Urgency,
     Priority,
     DueDate,
-}
-
-impl Default for SortStrategy {
-    fn default() -> Self {
-        SortStrategy::Urgency
-    }
 }
 
 // Coefficients
@@ -53,14 +48,14 @@ impl<R: TaskRepository> TaskService<R> {
     
     // Sort helper specifically for the service if needed externally, 
     // but better to use the standalone function.
-    pub fn sort(tasks: &mut Vec<Task>, strategy: SortStrategy) {
+    pub fn sort(tasks: &mut [Task], strategy: SortStrategy) {
         sort_tasks(tasks, strategy);
     }
 }
 
 // Standalone functions for pure logic
 
-pub fn sort_tasks(tasks: &mut Vec<Task>, strategy: SortStrategy) {
+pub fn sort_tasks(tasks: &mut [Task], strategy: SortStrategy) {
     tasks.sort_by(|a, b| {
         let score_a = calculate_score(a, strategy);
         let score_b = calculate_score(b, strategy);

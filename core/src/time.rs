@@ -52,8 +52,8 @@ pub fn parse_human_date(input: &str) -> Result<DateTime<Utc>> {
     }
 
     // 2. Relative format (+Nd, +Nw, +Nm)
-    if input.starts_with('+') {
-        let (num_str, unit) = input[1..].split_at(input.len() - 2);
+    if let Some(stripped) = input.strip_prefix('+') {
+        let (num_str, unit) = stripped.split_at(stripped.len() - 1);
         let count: i64 = num_str.parse().map_err(|_| anyhow!("Invalid relative format"))?;
         
         let target = match unit {
