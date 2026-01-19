@@ -67,6 +67,13 @@ impl TaskRepository for FileTaskRepository {
         Ok(task)
     }
 
+    fn get(&self, id: &Uuid) -> Result<Task> {
+        let tasks = self.read_tasks()?;
+        tasks.into_iter()
+            .find(|t| t.id == *id)
+            .ok_or_else(|| anyhow!("Task with ID {} not found", id))
+    }
+
     fn list(&self) -> Result<Vec<Task>> {
         self.read_tasks()
     }

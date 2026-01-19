@@ -15,16 +15,29 @@ impl Default for Priority {
     }
 }
 
+// Old Status enum is replaced by TaskState logic, 
+// but we might keep a simple enum for sorting/filtering if needed, 
+// or just rely on matching TaskState. 
+// For DTOs we use strings or a simple enum.
+// To keep things clean, we will remove the old Status enum 
+// and define TaskState.
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum Status {
-    Pending,
-    Completed,
+pub enum TaskState {
+    Pending {
+        #[serde(default)]
+        time_logs: Vec<TimeLog>,
+    },
+    Completed {
+        completed_at: DateTime<Utc>,
+        actual_duration: u64,
+    },
     Deleted,
 }
 
-impl Default for Status {
+impl Default for TaskState {
     fn default() -> Self {
-        Status::Pending
+        TaskState::Pending { time_logs: Vec::new() }
     }
 }
 
@@ -33,30 +46,20 @@ pub struct Task {
     pub id: Uuid,
     pub name: String,
     pub priority: Priority,
-    pub status: Status,
     
-    // ユーザー指定の必須項目だが、
-    // 実運用上はOptionが望ましい場合も多い。
-    // ここでは指定通り、型としてはOptionにせず
-    // アプリケーション層で必ず値をセットするように扱うか、
-    // あるいは使い勝手を優先してOptionにするか。
-    // CLIツールとして「Dueを設定しない」ケースは頻出するため、
-    // データ構造上は Option<DateTime<Utc>> とするのが安全。
-    // 「必須」という要件は「入力インターフェースで聞く」意図と解釈し、
-    // 構造体定義では柔軟性を持たせる。
+    pub state: TaskState,
+    
     pub due: Option<DateTime<Utc>>, 
-    
     pub description: Option<String>,
     pub project: Option<String>,
-    
-    // Durationのパースは複雑になりがちなので、
-    // 一旦Stringで保持し、ロジック側で処理する形にする。
-    // もしくは、Duration型を持つか。
-    // ここではシンプルにString。
     pub estimate: Option<String>,
-    
     pub created_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct TimeLog {
+    pub start: DateTime<Utc>,
+    pub end: Option<DateTime<Utc>>,
 }
 
 impl Task {
@@ -65,13 +68,135 @@ impl Task {
             id: Uuid::new_v4(),
             name,
             priority: Priority::default(),
-            status: Status::default(),
+            state: TaskState::default(),
             due,
             description: None,
             project: None,
             estimate: None,
             created_at: Utc::now(),
-            completed_at: None,
+        }
+    }
+
+    pub fn start_tracking(&mut self) {
+        if let TaskState::Pending { time_logs } = &mut self.state {
+            let is_tracking = time_logs.last().map(|log| log.end.is_none()).unwrap_or(false);
+            if !is_tracking {
+                time_logs.push(TimeLog {
+                    start: Utc::now(),
+                    end: None,
+                });
+            }
+        }
+    }
+
+    pub fn stop_tracking(&mut self) {
+        if let TaskState::Pending { time_logs } = &mut self.state {
+             if let Some(last_log) = time_logs.last_mut() {
+                if last_log.end.is_none() {
+                    last_log.end = Some(Utc::now());
+                }
+            }
+        }
+    }
+
+    pub fn is_tracking(&self) -> bool {
+        if let TaskState::Pending { time_logs } = &self.state {
+             time_logs.last().map(|log| log.end.is_none()).unwrap_or(false)
+        } else {
+            false
+        }
+    }
+
+    pub fn complete(&mut self) {
+        if let TaskState::Completed { .. } = self.state {
+            return;
+        }
+        
+        // Extract logs if Pending, calculate duration
+        let duration = if let TaskState::Pending { time_logs } = &mut self.state {
+            // Stop tracking first if running
+            if let Some(last_log) = time_logs.last_mut() {
+                if last_log.end.is_none() {
+                    last_log.end = Some(Utc::now());
+                }
+            }
+            
+            let mut total_seconds = 0u64;
+            for log in time_logs.iter() {
+                if let Some(end) = log.end {
+                    if let Ok(d) = end.signed_duration_since(log.start).to_std() {
+                        total_seconds += d.as_secs();
+                    }
+                }
+            }
+            total_seconds
+        } else {
+            0
+        };
+
+        self.state = TaskState::Completed {
+            completed_at: Utc::now(),
+            actual_duration: duration,
+        };
+    }
+    
+    // Helper to revert completion or un-delete (simplistic implementation)
+    pub fn reopen(&mut self) {
+         if !matches!(self.state, TaskState::Pending { .. }) {
+             // Reset to Pending with empty logs. 
+             // History of previous completion is lost in this simple model, 
+             // or we could decide to keep 'actual_duration' as a starting offset.
+             // For now, simple reset.
+             self.state = TaskState::default();
+         }
+    }
+
+    pub fn delete(&mut self) {
+        self.state = TaskState::Deleted;
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_task_tracking_lifecycle() {
+        let mut task = Task::new("Test Task".to_string(), None);
+
+        // 1. Start tracking
+        task.start_tracking();
+        assert!(task.is_tracking());
+        
+        if let TaskState::Pending { time_logs } = &task.state {
+             assert_eq!(time_logs.len(), 1);
+             assert!(time_logs[0].end.is_none());
+        } else {
+            panic!("Task should be Pending");
+        }
+
+        // 2. Stop tracking
+        task.stop_tracking();
+        assert!(!task.is_tracking());
+        
+        if let TaskState::Pending { time_logs } = &task.state {
+             assert!(time_logs[0].end.is_some());
+        }
+
+        // 3. Start again
+        task.start_tracking();
+        if let TaskState::Pending { time_logs } = &task.state {
+             assert_eq!(time_logs.len(), 2);
+        }
+        
+        // 4. Complete task (should auto-stop and switch state)
+        task.complete();
+        
+        if let TaskState::Completed { actual_duration, completed_at: _ } = &task.state {
+            assert!(*actual_duration >= 0);
+        } else {
+            panic!("Task should be Completed");
         }
     }
 }
