@@ -1,6 +1,7 @@
 use ratatui::widgets::TableState;
-use todoism_core::{FileTaskRepository, Task, TaskDto, parse_args, expand_key, parse_human_date, Priority};
+use todoism_core::{FileTaskRepository, Task, Status, parse_args, expand_key, parse_human_date, Priority};
 use todoism_core::service::task_service::{TaskService, SortStrategy};
+use chrono::Utc;
 use std::collections::HashMap;
 
 pub enum InputMode {
@@ -11,7 +12,7 @@ pub enum InputMode {
 
 pub struct App {
     pub service: TaskService<FileTaskRepository>,
-    pub tasks: Vec<TaskDto>,
+    pub tasks: Vec<Task>,
     pub state: TableState,
     pub input: String,
     pub input_mode: InputMode,
@@ -72,8 +73,19 @@ impl App {
 
     pub fn toggle_status(&mut self) {
         if let Some(i) = self.state.selected() {
-            if let Some(task) = self.tasks.get(i) {
-                let _ = self.service.toggle_status(&task.id);
+            if let Some(task) = self.tasks.get_mut(i) {
+                match task.status {
+                    Status::Pending => {
+                        task.status = Status::Completed;
+                        task.completed_at = Some(Utc::now());
+                    },
+                    Status::Completed => {
+                        task.status = Status::Pending;
+                        task.completed_at = None;
+                    },
+                    Status::Deleted => {},
+                }
+                let _ = self.service.update_task(task);
             }
             self.reload_tasks();
         }
@@ -84,6 +96,7 @@ impl App {
             if let Some(task) = self.tasks.get(i) {
                 let _ = self.service.delete_task(&task.id);
             }
+            // Instead of manually removing, just reload to be safe and consistent with sorting
             self.reload_tasks();
             
             // Adjust selection after reload
@@ -208,31 +221,28 @@ impl App {
              
              let known_keys = vec!["due", "project", "priority", "description", "estimate"];
              
-             if let Some(task_dto) = self.tasks.get(i) {
-                 // Fetch the full entity to modify
-                 if let Ok(mut task) = self.service.get_task(&task_dto.id) {
-                     if !parsed.name.is_empty() {
-                         task.name = parsed.name;
-                     }
-                     
-                     for (key, value) in parsed.metadata {
-                        if let Ok(full_key) = expand_key(&key, &known_keys) {
-                            match full_key.as_str() {
-                                "due" => {
-                                    if let Ok(d) = parse_human_date(&value) {
-                                        task.due = Some(d);
-                                    }
-                                },
-                                "project" => task.project = Some(value),
-                                "priority" => task.priority = parse_priority_str(&value),
-                                "description" => task.description = Some(value),
-                                "estimate" => task.estimate = Some(value),
-                                _ => {}
-                            }
-                        }
-                     }
-                     let _ = self.service.update_task(&task);
+             if let Some(task) = self.tasks.get_mut(i) {
+                 if !parsed.name.is_empty() {
+                     task.name = parsed.name;
                  }
+
+                 for (key, value) in parsed.metadata {
+                    if let Ok(full_key) = expand_key(&key, &known_keys) {
+                        match full_key.as_str() {
+                            "due" => {
+                                if let Ok(d) = parse_human_date(&value) {
+                                    task.due = Some(d);
+                                }
+                            },
+                            "project" => task.project = Some(value),
+                            "priority" => task.priority = parse_priority_str(&value),
+                            "description" => task.description = Some(value),
+                            "estimate" => task.estimate = Some(value),
+                            _ => {}
+                        }
+                    }
+                 }
+                 let _ = self.service.update_task(task);
              }
              self.reload_tasks();
         }

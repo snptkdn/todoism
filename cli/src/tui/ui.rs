@@ -5,7 +5,8 @@ use ratatui::{
     widgets::{Block, Borders, BorderType, Paragraph, Row, Table, Wrap},
     Frame,
 };
-use todoism_core::Priority;
+use todoism_core::{Priority, Status};
+use todoism_core::service::task_service::{SortStrategy, calculate_score};
 use unicode_width::UnicodeWidthStr;
 
 use crate::tui::app::{App, InputMode};
@@ -88,11 +89,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {
     let rows: Vec<Row> = app.tasks.iter().map(|task| {
-        let status_icon = match task.status.as_str() {
-            "Completed" => "✔",
-            "Pending" => "☐",
-            "Deleted" => "✖",
-            _ => "?",
+        let status_icon = match task.status {
+            Status::Completed => "✔",
+            Status::Pending => "☐",
+            Status::Deleted => "✖",
         };
         
         let priority_style = match task.priority {
@@ -110,7 +110,7 @@ fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {
         let due_str = task.due.map(|d| d.format("%m-%d").to_string()).unwrap_or_else(|| "-".to_string());
         let proj_str = task.project.clone().unwrap_or_else(|| "".to_string());
         let est_str = task.estimate.clone().unwrap_or_else(|| "".to_string());
-        let score = task.score;
+        let score = calculate_score(task, SortStrategy::Urgency);
 
         Row::new(vec![
             Span::styled(status_icon, Style::default()),
@@ -158,7 +158,7 @@ fn draw_detail_view(f: &mut Frame, app: &App, area: Rect) {
                 ]),
                 Line::from(vec![
                     Span::styled("Status: ", Style::default().fg(Color::Blue)),
-                    Span::raw(&task.status),
+                    Span::raw(format!("{:?}", task.status)),
                 ]),
                 Line::from(vec![
                     Span::styled("Priority: ", Style::default().fg(Color::Blue)),
@@ -166,7 +166,7 @@ fn draw_detail_view(f: &mut Frame, app: &App, area: Rect) {
                 ]),
                 Line::from(vec![
                     Span::styled("Score: ", Style::default().fg(Color::Blue)),
-                    Span::raw(format!("{:.2}", task.score)),
+                    Span::raw(format!("{:.2}", calculate_score(task, SortStrategy::Urgency))),
                 ]),
                 Line::from(vec![
                     Span::styled("Due: ", Style::default().fg(Color::Blue)),
@@ -180,16 +180,13 @@ fn draw_detail_view(f: &mut Frame, app: &App, area: Rect) {
                     Span::styled("Estimate: ", Style::default().fg(Color::Blue)),
                     Span::raw(task.estimate.as_deref().unwrap_or("None")),
                 ]),
-                Line::from(vec![
-                    Span::styled("Description: ", Style::default().fg(Color::Blue)),
-                    Span::raw(task.description.as_deref().unwrap_or("None")),
-                ]),
-                Line::from(vec![
-                    Span::styled("Time Logged: ", Style::default().fg(Color::Blue)),
-                    Span::raw(format!("{}s {}", task.accumulated_time, if task.is_tracking { "(Tracking)" } else { "" })),
-                ]),
                 Line::from(""),
             ];
+
+            if let Some(desc) = &task.description {
+                 detail_text.push(Line::from(Span::styled("Description:", Style::default().fg(Color::Blue))));
+                 detail_text.push(Line::from(desc.as_str()));
+            }
 
             let detail_block = Paragraph::new(detail_text)
                 .block(Block::default().title(" Detail ").borders(Borders::ALL).border_type(BorderType::Rounded))

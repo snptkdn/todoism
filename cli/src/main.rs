@@ -135,8 +135,7 @@ fn main() -> Result<()> {
                     let pri = format!("{:?}", task.priority);
                     let due = task.due.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "-".to_string());
                     let project = task.project.clone().unwrap_or_else(|| "-".to_string());
-                    // TaskDto now has the score directly
-                    let score = task.score;
+                    let score = calculate_score(&task, strategy);
                     
                     println!("{:<8} {:<8.1} {:<10} {:<12} {:<10} {}", 
                         short_id,

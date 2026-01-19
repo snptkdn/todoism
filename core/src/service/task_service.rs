@@ -1,9 +1,8 @@
-use crate::model::task::{Task, Priority, TaskState};
+use crate::model::task::{Task, Priority, Status};
 use crate::repository::TaskRepository;
 use crate::time::parse_duration;
-use crate::service::dto::TaskDto;
-use chrono::{Utc, Duration};
-use anyhow::{Result, anyhow};
+use chrono::Utc;
+use anyhow::Result;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -34,27 +33,14 @@ impl<R: TaskRepository> TaskService<R> {
         Self { repo }
     }
 
-    pub fn create_task(&self, task: Task) -> Result<TaskDto> {
-        let created = self.repo.create(task)?;
-        let score = calculate_score(&created, SortStrategy::Urgency);
-        Ok(TaskDto::from_entity(created, score))
+    pub fn create_task(&self, task: Task) -> Result<Task> {
+        self.repo.create(task)
     }
 
-    pub fn get_sorted_tasks(&self, strategy: SortStrategy) -> Result<Vec<TaskDto>> {
+    pub fn get_sorted_tasks(&self, strategy: SortStrategy) -> Result<Vec<Task>> {
         let mut tasks = self.repo.list()?;
         sort_tasks(&mut tasks, strategy);
-        
-        // Convert to DTOs
-        let dtos = tasks.into_iter().map(|t| {
-            let score = calculate_score(&t, strategy);
-            TaskDto::from_entity(t, score)
-        }).collect();
-        
-        Ok(dtos)
-    }
-
-    pub fn get_task(&self, id: &Uuid) -> Result<Task> {
-        self.repo.get(id)
+        Ok(tasks)
     }
 
     pub fn update_task(&self, task: &Task) -> Result<()> {
@@ -63,36 +49,6 @@ impl<R: TaskRepository> TaskService<R> {
 
     pub fn delete_task(&self, id: &Uuid) -> Result<()> {
         self.repo.delete(id)
-    }
-    
-    // State management methods
-    
-    pub fn start_task(&self, id: &Uuid) -> Result<()> {
-        let mut task = self.repo.get(id)?;
-        task.start_tracking();
-        self.repo.update(&task)
-    }
-
-    pub fn stop_task(&self, id: &Uuid) -> Result<()> {
-        let mut task = self.repo.get(id)?;
-        task.stop_tracking();
-        self.repo.update(&task)
-    }
-
-    pub fn complete_task(&self, id: &Uuid) -> Result<()> {
-        let mut task = self.repo.get(id)?;
-        task.complete();
-        self.repo.update(&task)
-    }
-
-    pub fn toggle_status(&self, id: &Uuid) -> Result<()> {
-        let mut task = self.repo.get(id)?;
-        if matches!(task.state, TaskState::Completed { .. }) {
-             task.reopen();
-        } else {
-             task.complete();
-        }
-        self.repo.update(&task)
     }
     
     // Sort helper specifically for the service if needed externally, 
@@ -121,8 +77,7 @@ pub fn calculate_score(task: &Task, strategy: SortStrategy) -> f64 {
 }
 
 fn calculate_urgency(task: &Task) -> f64 {
-    // Only pending tasks have urgency
-    if !matches!(task.state, TaskState::Pending { .. }) {
+    if task.status != Status::Pending {
         return -100.0;
     }
 
