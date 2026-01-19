@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, BorderType, Paragraph, Row, Table, Wrap},
     Frame,
 };
-use todoism_core::{Priority, Status};
+use todoism_core::{Priority, Status, SortStrategy};
 use unicode_width::UnicodeWidthStr;
 
 use crate::tui::app::{App, InputMode};
@@ -35,8 +35,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
+            Constraint::Percentage(60), // Increased width for list to accommodate extra columns
+            Constraint::Percentage(40),
         ])
         .split(main_chunks[1]);
 
@@ -108,11 +108,15 @@ fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {
 
         let due_str = task.due.map(|d| d.format("%m-%d").to_string()).unwrap_or_else(|| "-".to_string());
         let proj_str = task.project.clone().unwrap_or_else(|| "".to_string());
+        let est_str = task.estimate.clone().unwrap_or_else(|| "".to_string());
+        let score = task.score(SortStrategy::Urgency); // Use Urgency score for display
 
         Row::new(vec![
             Span::styled(status_icon, Style::default()),
+            Span::styled(format!("{:.1}", score), Style::default().fg(Color::DarkGray)), // Score column
             Span::styled(pri_str, priority_style),
             Span::raw(due_str),
+            Span::raw(est_str),
             Span::raw(proj_str),
             Span::styled(task.name.clone(), Style::default().add_modifier(Modifier::BOLD)),
         ])
@@ -122,13 +126,15 @@ fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {
         rows,
         [
             Constraint::Length(3),  // Status
+            Constraint::Length(5),  // Score
             Constraint::Length(3),  // Priority
             Constraint::Length(6),  // Due
+            Constraint::Length(5),  // Est
             Constraint::Length(10), // Project
             Constraint::Min(10),    // Name
         ]
     )
-    .header(Row::new(vec!["St", "Pr", "Due", "Project", "Task"]).style(Style::default().fg(Color::Yellow)))
+    .header(Row::new(vec!["St", "Score", "Pr", "Due", "Est", "Project", "Task"]).style(Style::default().fg(Color::Yellow)))
     .block(Block::default().title(" Tasks ").borders(Borders::ALL).border_type(BorderType::Rounded))
     .row_highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
     .highlight_symbol(">> ");
@@ -156,6 +162,10 @@ fn draw_detail_view(f: &mut Frame, app: &App, area: Rect) {
                 Line::from(vec![
                     Span::styled("Priority: ", Style::default().fg(Color::Blue)),
                     Span::raw(format!("{:?}", task.priority)),
+                ]),
+                Line::from(vec![
+                    Span::styled("Score: ", Style::default().fg(Color::Blue)),
+                    Span::raw(format!("{:.2}", task.score(SortStrategy::Urgency))),
                 ]),
                 Line::from(vec![
                     Span::styled("Due: ", Style::default().fg(Color::Blue)),

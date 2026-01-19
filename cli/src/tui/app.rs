@@ -1,5 +1,5 @@
 use ratatui::widgets::TableState;
-use todoism_core::{FileTaskRepository, Task, TaskRepository, Status, parse_args, expand_key, parse_human_date, Priority};
+use todoism_core::{FileTaskRepository, Task, TaskRepository, Status, parse_args, expand_key, parse_human_date, Priority, sort_tasks, SortStrategy};
 use chrono::Utc;
 use std::collections::HashMap;
 
@@ -21,7 +21,8 @@ pub struct App {
 impl App {
     pub fn new() -> App {
         let repo = FileTaskRepository::new(None).expect("Failed to initialize repository");
-        let tasks = repo.list().unwrap_or_default();
+        let mut tasks = repo.list().unwrap_or_default();
+        sort_tasks(&mut tasks, SortStrategy::Urgency);
         let mut state = TableState::default();
         if !tasks.is_empty() {
             state.select(Some(0));
@@ -84,6 +85,7 @@ impl App {
                 }
                 let _ = self.repo.update(task);
             }
+            sort_tasks(&mut self.tasks, SortStrategy::Urgency);
         }
     }
 
@@ -196,17 +198,15 @@ impl App {
 
         if let Ok(created_task) = self.repo.create(new_task) {
              self.tasks.push(created_task);
-             self.state.select(Some(self.tasks.len() - 1));
+             sort_tasks(&mut self.tasks, SortStrategy::Urgency);
+             if !self.tasks.is_empty() {
+                 self.state.select(Some(0));
+             }
         }
     }
 
     fn submit_modify(&mut self) {
         if let Some(i) = self.state.selected() {
-             // In modify mode, the input is primarily metadata updates, but potentially name update too?
-             // "modify <args>" usually implies updating attributes.
-             // If user types "due:tomorrow", we update due.
-             // If user types "New Name", do we update name? Yes, usually.
-             
              let args: Vec<String> = self.input.split_whitespace().map(|s| s.to_string()).collect();
              let parsed = parse_args(&args);
              
@@ -235,6 +235,7 @@ impl App {
                  }
                  let _ = self.repo.update(task);
              }
+             sort_tasks(&mut self.tasks, SortStrategy::Urgency);
         }
     }
 }

@@ -1,7 +1,7 @@
 mod tui;
 
 use clap::Parser;
-use todoism_core::{greet, Task, FileTaskRepository, TaskRepository, parse_args, expand_key, parse_human_date, Priority};
+use todoism_core::{greet, Task, FileTaskRepository, TaskRepository, parse_args, expand_key, parse_human_date, Priority, sort_tasks, SortStrategy};
 use anyhow::{Result};
 use std::collections::HashMap;
 
@@ -29,7 +29,7 @@ enum Commands {
     Tui,
 }
 
-fn parse_priority(pri_str: &str) -> Priority {
+fn parse_priority_str(pri_str: &str) -> Priority {
     match pri_str.to_lowercase().as_str() {
         "h" | "high" => Priority::High,
         "m" | "medium" | "med" => Priority::Medium,
@@ -89,7 +89,7 @@ fn main() -> Result<()> {
 
             let project = normalized_metadata.get("project").cloned();
             let priority = normalized_metadata.get("priority")
-                .map(|p| parse_priority(p))
+                .map(|p| parse_priority_str(p))
                 .unwrap_or_default();
             let description = normalized_metadata.get("description").cloned();
             let estimate = normalized_metadata.get("estimate").cloned();
@@ -111,22 +111,28 @@ fn main() -> Result<()> {
             println!("  Priority: {:?}", created_task.priority);
         },
         Some(Commands::List) => {
-            let tasks = repo.list()?;
+            let mut tasks = repo.list()?;
             if tasks.is_empty() {
                 println!("No tasks found.");
             } else {
-                println!("{:<38} {:<10} {:<12} {:<10} {:<20}", "ID", "Priority", "Due", "Project", "Description");
-                println!("{:-<38} {:-<10} {:-<12} {:-<10} {:-<20}", "", "", "", "", "");
+                // Apply sorting (Urgency by default)
+                let strategy = SortStrategy::Urgency;
+                sort_tasks(&mut tasks, strategy);
+
+                println!("{:<8} {:<8} {:<10} {:<12} {:<10} {:<20}", "ID", "Score", "Priority", "Due", "Project", "Description");
+                println!("{:-<8} {:-<8} {:-<10} {:-<12} {:-<10} {:-<20}", "", "", "", "", "", "");
                 
                 for task in tasks {
                     let id_str = task.id.to_string();
                     let short_id = if id_str.len() > 8 { &id_str[..8] } else { &id_str }; 
                     let pri = format!("{:?}", task.priority);
                     let due = task.due.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "-".to_string());
-                    let project = task.project.unwrap_or_else(|| "-".to_string());
+                    let project = task.project.clone().unwrap_or_else(|| "-".to_string());
+                    let score = task.score(strategy);
                     
-                    println!("{:<38} {:<10} {:<12} {:<10} {}", 
-                        short_id, 
+                    println!("{:<8} {:<8.1} {:<10} {:<12} {:<10} {}", 
+                        short_id,
+                        score, 
                         pri, 
                         due, 
                         project, 
@@ -139,12 +145,6 @@ fn main() -> Result<()> {
             tui::run()?;
         },
         None => {
-            // Default behavior if no command provided: Open TUI (or show help)
-            // User prefers TUI, so let's launch TUI by default?
-            // "実際使うのはcliじゃなくてtuiだと思う" -> implied preference.
-            // But let's stick to explicit first, or maybe explicit TUI command.
-            // Let's print help for now to be safe, or just run TUI?
-            // I'll make it run TUI by default as per "CLIじゃなくてTUI" hint.
             tui::run()?;
         }
     }

@@ -1,6 +1,26 @@
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, TimeZone, Utc, Weekday};
 use anyhow::{anyhow, Result};
 
+pub fn parse_duration(input: &str) -> Result<Duration> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err(anyhow!("Empty duration string"));
+    }
+
+    let len = input.len();
+    let (num_str, unit) = input.split_at(len - 1);
+    
+    let num: i64 = num_str.parse().map_err(|_| anyhow!("Invalid duration number"))?;
+    
+    match unit.to_lowercase().as_str() {
+        "m" => Ok(Duration::minutes(num)),
+        "h" => Ok(Duration::hours(num)),
+        "d" => Ok(Duration::days(num)),
+        "w" => Ok(Duration::weeks(num)),
+        _ => Err(anyhow!("Unknown duration unit: {}", unit)),
+    }
+}
+
 pub fn parse_human_date(input: &str) -> Result<DateTime<Utc>> {
     let now = Local::now(); // Use local time for calculation relative to user
     let today = now.date_naive();
