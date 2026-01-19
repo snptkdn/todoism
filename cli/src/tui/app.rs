@@ -1,5 +1,6 @@
 use ratatui::widgets::TableState;
-use todoism_core::{FileTaskRepository, Task, TaskRepository, Status, parse_args, expand_key, parse_human_date, Priority, sort_tasks, SortStrategy};
+use todoism_core::{FileTaskRepository, Task, TaskRepository, Status, parse_args, expand_key, parse_human_date, Priority};
+use todoism_core::service::task_service::{TaskService, SortStrategy};
 use chrono::Utc;
 use std::collections::HashMap;
 
@@ -10,7 +11,7 @@ pub enum InputMode {
 }
 
 pub struct App {
-    pub repo: FileTaskRepository,
+    pub service: TaskService<FileTaskRepository>,
     pub tasks: Vec<Task>,
     pub state: TableState,
     pub input: String,
@@ -21,14 +22,15 @@ pub struct App {
 impl App {
     pub fn new() -> App {
         let repo = FileTaskRepository::new(None).expect("Failed to initialize repository");
-        let mut tasks = repo.list().unwrap_or_default();
-        sort_tasks(&mut tasks, SortStrategy::Urgency);
+        let service = TaskService::new(repo);
+        
+        let tasks = service.get_sorted_tasks(SortStrategy::Urgency).unwrap_or_default();
         let mut state = TableState::default();
         if !tasks.is_empty() {
             state.select(Some(0));
         }
         App { 
-            repo, 
+            service,
             tasks, 
             state,
             input: String::new(),
@@ -83,19 +85,21 @@ impl App {
                     },
                     Status::Deleted => {},
                 }
-                let _ = self.repo.update(task);
+                let _ = self.service.update_task(task);
             }
-            sort_tasks(&mut self.tasks, SortStrategy::Urgency);
+            self.reload_tasks();
         }
     }
 
     pub fn delete_task(&mut self) {
         if let Some(i) = self.state.selected() {
             if let Some(task) = self.tasks.get(i) {
-                let _ = self.repo.delete(&task.id);
+                let _ = self.service.delete_task(&task.id);
             }
-            self.tasks.remove(i);
+            // Instead of manually removing, just reload to be safe and consistent with sorting
+            self.reload_tasks();
             
+            // Adjust selection after reload
             if self.tasks.is_empty() {
                 self.state.select(None);
             } else if i >= self.tasks.len() {
@@ -103,6 +107,12 @@ impl App {
             } else {
                 self.state.select(Some(i));
             }
+        }
+    }
+
+    fn reload_tasks(&mut self) {
+        if let Ok(tasks) = self.service.get_sorted_tasks(SortStrategy::Urgency) {
+            self.tasks = tasks;
         }
     }
 
@@ -196,9 +206,8 @@ impl App {
         new_task.description = description;
         new_task.estimate = estimate;
 
-        if let Ok(created_task) = self.repo.create(new_task) {
-             self.tasks.push(created_task);
-             sort_tasks(&mut self.tasks, SortStrategy::Urgency);
+        if let Ok(_) = self.service.create_task(new_task) {
+             self.reload_tasks();
              if !self.tasks.is_empty() {
                  self.state.select(Some(0));
              }
@@ -233,9 +242,9 @@ impl App {
                         }
                     }
                  }
-                 let _ = self.repo.update(task);
+                 let _ = self.service.update_task(task);
              }
-             sort_tasks(&mut self.tasks, SortStrategy::Urgency);
+             self.reload_tasks();
         }
     }
 }

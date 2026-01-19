@@ -1,7 +1,8 @@
 mod tui;
 
 use clap::Parser;
-use todoism_core::{greet, Task, FileTaskRepository, TaskRepository, parse_args, expand_key, parse_human_date, Priority, sort_tasks, SortStrategy};
+use todoism_core::{greet, Task, FileTaskRepository, TaskRepository, parse_args, expand_key, parse_human_date, Priority};
+use todoism_core::service::task_service::{TaskService, SortStrategy, calculate_score};
 use anyhow::{Result};
 use std::collections::HashMap;
 
@@ -39,11 +40,13 @@ fn parse_priority_str(pri_str: &str) -> Priority {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
     let repo = FileTaskRepository::new(None)?;
+    let service = TaskService::new(repo);
 
     // Define known keys for expansion
     let known_keys = vec!["due", "project", "priority", "description", "estimate"];
+
+    let cli = Cli::parse();
 
     match cli.command {
         Some(Commands::Greet) => {
@@ -100,7 +103,7 @@ fn main() -> Result<()> {
             new_task.description = description;
             new_task.estimate = estimate;
 
-            let created_task = repo.create(new_task)?;
+            let created_task = service.create_task(new_task)?;
             println!("Task added: {} (ID: {})", created_task.name, created_task.id);
             if let Some(d) = created_task.due {
                 println!("  Due: {}", d);
@@ -111,14 +114,12 @@ fn main() -> Result<()> {
             println!("  Priority: {:?}", created_task.priority);
         },
         Some(Commands::List) => {
-            let mut tasks = repo.list()?;
+            let strategy = SortStrategy::Urgency;
+            let tasks = service.get_sorted_tasks(strategy)?;
+            
             if tasks.is_empty() {
                 println!("No tasks found.");
             } else {
-                // Apply sorting (Urgency by default)
-                let strategy = SortStrategy::Urgency;
-                sort_tasks(&mut tasks, strategy);
-
                 println!("{:<8} {:<8} {:<10} {:<12} {:<10} {:<20}", "ID", "Score", "Priority", "Due", "Project", "Description");
                 println!("{:-<8} {:-<8} {:-<10} {:-<12} {:-<10} {:-<20}", "", "", "", "", "", "");
                 
@@ -128,7 +129,7 @@ fn main() -> Result<()> {
                     let pri = format!("{:?}", task.priority);
                     let due = task.due.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "-".to_string());
                     let project = task.project.clone().unwrap_or_else(|| "-".to_string());
-                    let score = task.score(strategy);
+                    let score = calculate_score(&task, strategy);
                     
                     println!("{:<8} {:<8.1} {:<10} {:<12} {:<10} {}", 
                         short_id,
