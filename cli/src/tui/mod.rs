@@ -115,11 +115,23 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
 
 
 
-                                    KeyCode::Char(' ') | KeyCode::Enter => app.toggle_status(),
+                                                                        KeyCode::Char(' ') | KeyCode::Enter => app.toggle_status(),
 
 
 
-                                    KeyCode::Char('d') | KeyCode::Delete => app.delete_task(),
+                                    
+
+
+
+                                                                        KeyCode::Char('s') => app.toggle_tracking(),
+
+
+
+                                    
+
+
+
+                                                                        KeyCode::Char('d') | KeyCode::Delete => app.delete_task(),
 
 
 

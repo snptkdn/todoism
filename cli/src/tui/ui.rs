@@ -88,11 +88,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {
     let rows: Vec<Row> = app.tasks.iter().map(|task| {
-        let status_icon = match task.status.as_str() {
-            "Completed" => "✔",
-            "Pending" => "☐",
-            "Deleted" => "✖",
-            _ => "?",
+        let (status_icon, status_style) = if task.is_tracking {
+             ("▶", Style::default().fg(Color::Green))
+        } else {
+            match task.status.as_str() {
+                "Completed" => ("✔", Style::default()),
+                "Pending" => ("☐", Style::default()),
+                "Deleted" => ("✖", Style::default()),
+                _ => ("?", Style::default()),
+            }
         };
         
         let priority_style = match task.priority {
@@ -113,7 +117,7 @@ fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {
         let score = task.score;
 
         Row::new(vec![
-            Span::styled(status_icon, Style::default()),
+            Span::styled(status_icon, status_style),
             Span::styled(format!("{:.1}", score), Style::default().fg(Color::DarkGray)),
             Span::styled(pri_str, priority_style),
             Span::raw(due_str),
