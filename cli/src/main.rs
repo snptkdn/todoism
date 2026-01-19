@@ -1,10 +1,14 @@
 mod tui;
 
 use clap::Parser;
-use todoism_core::{greet, Task, FileTaskRepository, TaskRepository, parse_args, expand_key, parse_human_date, Priority};
+use todoism_core::{greet, Task, FileTaskRepository, TaskRepository, parse_args, expand_key, parse_human_date, Priority, Status, parse_duration};
 use todoism_core::service::task_service::{TaskService, SortStrategy, calculate_score};
 use anyhow::{Result};
 use std::collections::HashMap;
+use itertools::Itertools;
+use tabled::{Table, settings::Style};
+use chrono::{Datelike, Duration, Local};
+use crossterm::style::Stylize;
 
 #[derive(Parser)]
 #[command(name = "todoism")]
@@ -26,6 +30,8 @@ enum Commands {
     },
     /// List all tasks
     List,
+    /// Show completed task history
+    History,
     /// Open the Terminal User Interface
     Tui,
 }
@@ -41,7 +47,7 @@ fn parse_priority_str(pri_str: &str) -> Priority {
 
 fn main() -> Result<()> {
     let repo = FileTaskRepository::new(None)?;
-    let service = TaskService::new(repo);
+    let service = TaskService::new(repo.clone());
 
     // Define known keys for expansion
     let known_keys = vec!["due", "project", "priority", "description", "estimate"];
@@ -142,6 +148,9 @@ fn main() -> Result<()> {
                 }
             }
         },
+        Some(Commands::History) => {
+             run_history(&repo)?;
+        },
         Some(Commands::Tui) => {
             tui::run()?;
         },
@@ -150,4 +159,120 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn run_history(repo: &FileTaskRepository) -> Result<()> {
+    let tasks = repo.list()?;
+    let mut completed_tasks: Vec<_> = tasks.into_iter()
+        .filter(|t| t.status == Status::Completed && t.completed_at.is_some())
+        .collect();
+
+    if completed_tasks.is_empty() {
+        println!("No completed tasks found in history.");
+        return Ok(());
+    }
+
+    // Sort by completion time desc (Recent first)
+    completed_tasks.sort_by(|a, b| b.completed_at.cmp(&a.completed_at));
+
+    // Group by Week
+    let weeks = completed_tasks.into_iter().chunk_by(|t| {
+        let date = t.completed_at.unwrap().with_timezone(&Local);
+        date.iso_week()
+    });
+
+    for (week, week_tasks) in &weeks {
+        let week_tasks_vec: Vec<_> = week_tasks.collect();
+        let week_total = sum_estimates(&week_tasks_vec);
+
+        println!("\n{} {} {}",
+            format!("Week {}", week.week()).bold().cyan(),
+            format!("({})", week.year()).dim(),
+            format!("Total: {}", format_duration(week_total)).yellow()
+        );
+
+        // Group by Day
+        let days = week_tasks_vec.into_iter().chunk_by(|t| {
+            t.completed_at.unwrap().with_timezone(&Local).date_naive()
+        });
+
+        for (day, day_tasks) in &days {
+            let day_tasks_vec: Vec<_> = day_tasks.collect();
+            let day_total = sum_estimates(&day_tasks_vec);
+
+            println!("  {} {}",
+                format!("{}", day.format("%Y-%m-%d (%a)")).bold(),
+                format!("Total: {}", format_duration(day_total)).yellow()
+            );
+
+            let table_rows: Vec<HistoryRow> = day_tasks_vec.iter().map(HistoryRow::from).collect();
+            let mut table = Table::new(table_rows);
+            table.with(Style::modern());
+
+            let table_str = table.to_string();
+            for line in table_str.lines() {
+                println!("    {}", line);
+            }
+            println!();
+        }
+    }
+    Ok(())
+}
+
+fn sum_estimates(tasks: &[Task]) -> Duration {
+    tasks.iter().fold(Duration::zero(), |acc, t| {
+        if let Some(est) = &t.estimate {
+            if let Ok(d) = parse_duration(est) {
+                return acc + d;
+            }
+        }
+        acc
+    })
+}
+
+fn format_duration(d: Duration) -> String {
+    let hours = d.num_hours();
+    let minutes = d.num_minutes() % 60;
+    if hours > 0 {
+        if minutes > 0 {
+            format!("{}h {}m", hours, minutes)
+        } else {
+            format!("{}h", hours)
+        }
+    } else {
+        format!("{}m", minutes)
+    }
+}
+
+#[derive(tabled::Tabled)]
+struct HistoryRow {
+    #[tabled(rename = "Time")]
+    time: String,
+    #[tabled(rename = "ID")]
+    id: String,
+    #[tabled(rename = "Project")]
+    project: String,
+    #[tabled(rename = "Task")]
+    name: String,
+    #[tabled(rename = "Est")]
+    estimate: String,
+}
+
+impl From<&Task> for HistoryRow {
+    fn from(task: &Task) -> Self {
+        let id_str = task.id.to_string();
+        let short_id = if id_str.len() > 8 { &id_str[..8] } else { &id_str };
+
+        let time_str = task.completed_at
+            .map(|dt| dt.with_timezone(&Local).format("%H:%M").to_string())
+            .unwrap_or_else(|| "-".to_string());
+
+        Self {
+            time: time_str,
+            id: short_id.to_string(),
+            project: task.project.clone().unwrap_or_default(),
+            name: task.name.clone(),
+            estimate: task.estimate.clone().unwrap_or_default(),
+        }
+    }
 }

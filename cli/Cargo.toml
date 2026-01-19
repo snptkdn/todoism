@@ -11,3 +11,5 @@ crossterm = "0.29.0"
 ratatui = "0.30.0"
 todoism-core = { path = "../core" }
 unicode-width = "0.2.2"
+tabled = "0.15"
+itertools = "0.13"
