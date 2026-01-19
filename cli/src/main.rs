@@ -21,6 +21,8 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// List all tasks
+    List,
 }
 
 fn parse_priority(pri_str: &str) -> Priority {
@@ -104,6 +106,31 @@ fn main() -> Result<()> {
             }
             println!("  Priority: {:?}", created_task.priority);
         },
+        Commands::List => {
+            let tasks = repo.list()?;
+            if tasks.is_empty() {
+                println!("No tasks found.");
+            } else {
+                println!("{:<38} {:<10} {:<12} {:<10} {:<20}", "ID", "Priority", "Due", "Project", "Description");
+                println!("{:-<38} {:-<10} {:-<12} {:-<10} {:-<20}", "", "", "", "", "");
+                
+                for task in tasks {
+                    let id_str = task.id.to_string();
+                    let short_id = if id_str.len() > 8 { &id_str[..8] } else { &id_str }; // Show first 8 chars of ID
+                    let pri = format!("{:?}", task.priority);
+                    let due = task.due.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "-".to_string());
+                    let project = task.project.unwrap_or_else(|| "-".to_string());
+                    
+                    println!("{:<38} {:<10} {:<12} {:<10} {}", 
+                        short_id, 
+                        pri, 
+                        due, 
+                        project, 
+                        task.name
+                    );
+                }
+            }
+        }
     }
     Ok(())
 }
