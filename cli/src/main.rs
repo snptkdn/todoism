@@ -1,5 +1,6 @@
 mod tui;
 mod history;
+mod stats;
 
 use clap::Parser;
 use todoism_core::service::task_service::{TaskService, SortStrategy};
@@ -33,6 +34,8 @@ enum Commands {
     Tui,
     /// View completed task history (Timesheet)
     History,
+    /// View statistics (TUI)
+    Stats,
 }
 
 fn parse_priority_str(pri_str: &str) -> Priority {
@@ -157,6 +160,9 @@ fn main() -> Result<()> {
         Some(Commands::History) => {
              let history_usecase = HistoryUseCase::new(&service.repo, &daily_log_service); // accessing service.repo requires it to be pub. I made it pub in TaskService.
              history::show_history(&history_usecase)?;
+        },
+        Some(Commands::Stats) => {
+            stats::run(&service.repo, &daily_log_service)?;
         },
         Some(Commands::Tui) => {
             tui::run()?;
