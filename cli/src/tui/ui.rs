@@ -157,9 +157,9 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 fn draw_capacity_bar(f: &mut Frame, app: &App, area: Rect) {
-    let capacity_total = 8.0;
-    let unavailable = app.meeting_hours;
-    let consumed = app.today_work_total as f64 / 3600.0;
+    let capacity_total = app.daily_stats.total_capacity;
+    let unavailable = app.daily_stats.meeting_hours;
+    let consumed = app.daily_stats.work_done_today;
     
     // Effective capacity for tasks
     let effective_total = (capacity_total - unavailable).max(0.0);
@@ -192,12 +192,6 @@ fn draw_capacity_bar(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {
-    // Recalculate remaining capacity for highlighting
-    let capacity_total = 8.0;
-    let unavailable = app.meeting_hours;
-    let consumed = app.today_work_total as f64 / 3600.0;
-    let effective_remaining = (capacity_total - unavailable - consumed).max(0.0);
-
     let rows: Vec<Row> = app.tasks.iter().map(|task| {
         let (status_icon, status_style) = if task.is_tracking {
              ("▶", Style::default().fg(Color::Green))
@@ -227,17 +221,11 @@ fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {
         let est_str = task.estimate.clone().unwrap_or_else(|| "".to_string());
         let score = task.score;
         
-        // Fit Logic
-        let fit_str = if task.status == "Pending" && !task.is_tracking {
-             if task.remaining_estimate > 0.0 && task.remaining_estimate <= effective_remaining {
-                 "YES"
-             } else if task.remaining_estimate == 0.0 {
-                 "-" // No estimate
-             } else {
-                 "NO"
-             }
-        } else {
-            ""
+        // Fit Logic using pre-calculated field
+        let fit_str = match task.fit {
+            Some(true) => "YES",
+            Some(false) => "NO",
+            None => if task.remaining_estimate == 0.0 { "-" } else { "" },
         };
         
         // Color for Fit

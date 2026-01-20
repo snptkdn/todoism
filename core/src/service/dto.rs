@@ -19,6 +19,7 @@ pub struct TaskDto {
     pub accumulated_time: u64, // In seconds. For Pending: sum of logs. For Completed: actual_duration.
     pub today_accumulated_time: u64, // In seconds. Work done strictly today.
     pub remaining_estimate: f64, // In hours. Estimate - Accumulated.
+    pub fit: Option<bool>,   // Fits in today's remaining capacity?
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     
@@ -140,6 +141,7 @@ impl TaskDto {
             accumulated_time,
             today_accumulated_time: today_time,
             remaining_estimate: remaining_hours,
+            fit: None, // Logic handled by UseCase
             created_at: task.created_at,
             completed_at,
             score,

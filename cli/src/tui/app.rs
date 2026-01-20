@@ -1,6 +1,7 @@
 use ratatui::widgets::TableState;
 use todoism_core::{FileTaskRepository, FileDailyLogRepository, Task, TaskDto, parse_args, expand_key, parse_human_date, Priority};
 use todoism_core::{TaskService, DailyLogService, SortStrategy};
+use todoism_core::usecase::daily_plan::{DailyPlanUseCase, DailyPlanStats};
 use std::collections::HashMap;
 use chrono::Local;
 
@@ -21,8 +22,7 @@ pub struct App {
     pub cursor_position: usize,
     
     // Capacity Stats
-    pub today_work_total: u64, // Total seconds worked today across ALL tasks
-    pub meeting_hours: f64,
+    pub daily_stats: DailyPlanStats,
 }
 
 impl App {
@@ -35,23 +35,22 @@ impl App {
         
         let mut input_mode = InputMode::Normal;
         let today = Local::now().date_naive();
-        let mut meeting_hours = 0.0;
         
-        if let Ok(log_opt) = daily_log_service.get_log(today) {
-            if let Some(log) = log_opt {
-                meeting_hours = log.total_hours();
-            } else {
-                input_mode = InputMode::MeetingHoursPrompt;
-            }
+        // Check log existence for prompt
+        if let Ok(has_log) = daily_log_service.has_log(today) {
+             if !has_log {
+                 input_mode = InputMode::MeetingHoursPrompt;
+             }
         }
         
-        let all_tasks = service.get_sorted_tasks(SortStrategy::Urgency).unwrap_or_default();
+        // Fetch all tasks first
+        let mut all_tasks = service.get_sorted_tasks(SortStrategy::Urgency).unwrap_or_default();
         
-        // Calculate total work today from ALL tasks before filtering
-        let today_work_total: u64 = all_tasks.iter()
-            .map(|t| t.today_accumulated_time)
-            .sum();
+        // Apply Daily Plan Logic (Mutates tasks to add fit info)
+        let usecase = DailyPlanUseCase::new(&daily_log_service);
+        let daily_stats = usecase.apply_daily_plan(&mut all_tasks).unwrap_or_default();
 
+        // Filter for display
         let tasks: Vec<TaskDto> = all_tasks.into_iter()
             .filter(|t| t.status != "Completed" && t.status != "Deleted")
             .collect();
@@ -68,8 +67,7 @@ impl App {
             input: String::new(),
             input_mode,
             cursor_position: 0,
-            today_work_total,
-            meeting_hours,
+            daily_stats,
         }
     }
 
@@ -147,22 +145,15 @@ impl App {
     }
 
     fn reload_tasks(&mut self) {
-        let today = Local::now().date_naive();
-        // Update meeting hours
-        if let Ok(Some(log)) = self.daily_log_service.get_log(today) {
-            self.meeting_hours = log.total_hours();
-        }
-
-        if let Ok(tasks) = self.service.get_sorted_tasks(SortStrategy::Urgency) {
-            
-            self.today_work_total = tasks.iter()
-                .map(|t| t.today_accumulated_time)
-                .sum();
-                
-            // Filter out completed and deleted tasks for the main view
-            self.tasks = tasks.into_iter()
+        if let Ok(mut all_tasks) = self.service.get_sorted_tasks(SortStrategy::Urgency) {
+             let usecase = DailyPlanUseCase::new(&self.daily_log_service);
+             if let Ok(stats) = usecase.apply_daily_plan(&mut all_tasks) {
+                 self.daily_stats = stats;
+             }
+             
+             self.tasks = all_tasks.into_iter()
                 .filter(|t| t.status != "Completed" && t.status != "Deleted")
-                .collect::<Vec<TaskDto>>();
+                .collect();
         }
     }
 
