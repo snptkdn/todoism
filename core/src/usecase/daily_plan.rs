@@ -45,15 +45,32 @@ impl<'a, L: DailyLogRepository> DailyPlanUseCase<'a, L> {
         let effective_capacity = (total_capacity - meeting_hours).max(0.0);
         let remaining_active_capacity = (effective_capacity - work_done_hours).max(0.0);
 
-        // 5. Calculate Fit for Pending Tasks
+        // 5. Calculate Fit for Pending Tasks Sequentially
+        let mut current_capacity = remaining_active_capacity;
+        let mut capacity_exhausted = false;
+
         for task in tasks.iter_mut() {
             if task.status == "Pending" && !task.is_tracking {
-                if task.remaining_estimate > 0.0 && task.remaining_estimate <= remaining_active_capacity {
-                    task.fit = Some(true);
-                } else if task.remaining_estimate > 0.0 {
-                    task.fit = Some(false);
+                
+                if capacity_exhausted {
+                    if task.remaining_estimate > 0.0 {
+                         task.fit = Some(false);
+                    } else {
+                        task.fit = None; 
+                    }
+                    continue;
+                }
+
+                if task.remaining_estimate > 0.0 {
+                    if task.remaining_estimate <= current_capacity {
+                        task.fit = Some(true);
+                        current_capacity -= task.remaining_estimate;
+                    } else {
+                        task.fit = Some(false);
+                        capacity_exhausted = true; // Stop fitting subsequent tasks
+                    }
                 } else {
-                    task.fit = None; // No estimate
+                    task.fit = None; // No estimate, skipped in calculation (or treat as 0? Plan implies estimate needed)
                 }
             } else {
                 task.fit = None;
