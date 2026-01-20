@@ -121,7 +121,27 @@ pub fn sort_tasks(tasks: &mut Vec<Task>, strategy: SortStrategy) {
     tasks.sort_by(|a, b| {
         let score_a = calculate_score(a, strategy);
         let score_b = calculate_score(b, strategy);
-        score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
+        match score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal) {
+            std::cmp::Ordering::Equal => {
+                 // Break ties by estimate (shorter first)
+                 let est_a = parse_est_hours(&a.estimate);
+                 let est_b = parse_est_hours(&b.estimate);
+                 
+                 // If both have estimates, shorter wins.
+                 // If one has estimate, it wins over None (assuming None is unknown/long).
+                 // Logic: 
+                 // 0.0 (None or 0) vs >0.0
+                 // Let's treat 0.0 as "infinite" or "last"?
+                 // User said: "est ga hikui yatsu hodo yusendo takaku" (lower estimate = higher priority).
+                 // If est is 0 (missing), usually that's bad. Let's make it last.
+                 
+                 let val_a = if est_a > 0.0 { est_a } else { f64::MAX };
+                 let val_b = if est_b > 0.0 { est_b } else { f64::MAX };
+                 
+                 val_a.partial_cmp(&val_b).unwrap_or(std::cmp::Ordering::Equal)
+            },
+            other => other,
+        }
     });
 }
 

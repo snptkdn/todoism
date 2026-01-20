@@ -60,6 +60,13 @@ pub fn show_history<R: TaskRepository, L: DailyLogRepository>(history_usecase: &
                 let est_str = task_dto.estimate.clone().unwrap_or_else(|| "-".to_string());
 
                 let act_str = format!("{:.1}", task_dto.accumulated_time as f64 / 3600.0);
+                
+                // Visual distinction for status
+                let desc_display = if task_dto.status == "Pending" {
+                    format!("{} (In Progress)", task_dto.name) 
+                } else {
+                    task_dto.name.clone()
+                };
 
                 // Date column: Only show on first row of the day group
                 let date_col = if i == 0 {
@@ -71,7 +78,7 @@ pub fn show_history<R: TaskRepository, L: DailyLogRepository>(history_usecase: &
                 rows.push(HistoryRow {
                     date: date_col,
                     id: id_short,
-                    desc: task_dto.name.clone(),
+                    desc: desc_display,
                     est: est_str,
                     act: act_str,
                 });

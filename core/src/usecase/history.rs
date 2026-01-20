@@ -26,52 +26,86 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
         // Map: (Year, Week) -> Date -> (Tasks, EstHours, ActHours, MtgHours)
 
         let tasks = self.task_repo.list()?;
-        let completed_tasks: Vec<_> = tasks.iter()
-            .filter(|t| matches!(t.state, TaskState::Completed { .. }))
+        // Filter tasks: Completed tasks OR Pending tasks with time logs
+        let eligible_tasks: Vec<_> = tasks.iter()
+            .filter(|t| match &t.state {
+                TaskState::Completed { .. } => true,
+                TaskState::Pending { time_logs } => !time_logs.is_empty(),
+                _ => false,
+            })
             .collect();
 
-        // Pass 1: Place tasks in their completion slots (for listing) and distribute actual hours
-        for task in &completed_tasks {
-            if let TaskState::Completed { completed_at, actual_duration, time_logs } = &task.state {
-                let local_dt: DateTime<Local> = DateTime::from(*completed_at);
-                let date = local_dt.date_naive();
-                let iso = local_dt.iso_week();
-                let week_key = (iso.year(), iso.week());
-
-                // Ensure the day entry exists for the completion date
-                let day_entry_for_completion = weekly_data.entry(week_key).or_default().entry(date).or_default();
-                day_entry_for_completion.0.push(TaskDto::from_entity((*task).clone(), 0.0));
-                
-                let est = parse_est_hours(&task.estimate);
-                day_entry_for_completion.1 += est; // Add to Est total for that day
-                
-                // For Act hours:
-                // If we have logs, we distribute them.
-                // If no logs (legacy), we attribute actual_duration here.
-                if time_logs.is_empty() {
-                     if let Some(dur) = actual_duration {
-                         day_entry_for_completion.2 += *dur as f64 / 3600.0;
+        // Pass 1: Place tasks in listing slots and distribute actual hours
+        for task in &eligible_tasks {
+            let task_dto = TaskDto::from_entity((*task).clone(), 0.0);
+            
+            match &task.state {
+                TaskState::Completed { completed_at, actual_duration, time_logs } => {
+                     let local_dt: DateTime<Local> = DateTime::from(*completed_at);
+                     let date = local_dt.date_naive();
+                     let iso = local_dt.iso_week();
+                     let week_key = (iso.year(), iso.week());
+                     
+                     let entry = weekly_data.entry(week_key).or_default().entry(date).or_default();
+                     entry.0.push(task_dto);
+                     
+                     let est = parse_est_hours(&task.estimate);
+                     entry.1 += est;
+                     
+                     // Distribute logs
+                     if time_logs.is_empty() {
+                         if let Some(dur) = actual_duration {
+                             entry.2 += *dur as f64 / 3600.0;
+                         }
+                     } else {
+                         distribute_logs(time_logs, &mut weekly_data);
                      }
-                } else {
-                    // Iterate logs and distribute to respective days/weeks
+                },
+                TaskState::Pending { time_logs } => {
+                    // For pending tasks, we don't have a single "completion date".
+                    // We should list them on the days they were worked on? 
+                    // Or usually, checking history implies "what did I do today".
+                    // If I worked on it today, it should appear in today's history list.
+                    // But if I worked on it yesterday, it should appear in yesterday's list.
+                    // This means a single pending task might appear multiple times in history lists if worked on multiple days.
+                    
+                    // Logic: Iterate logs. For each Unique Day involved in logs, add this task to that day's list.
+                    // Warning: This duplicates the task in the list view, but that's arguably correct for a "timesheet" view.
+                    
+                    // Distribute logs first to get hours right
+                    distribute_logs(time_logs, &mut weekly_data);
+                    
+                    // Now ensure task is listed on days it has activity
+                    let mut days_active = std::collections::HashSet::new();
                     for log in time_logs {
-                        if let Some(end) = log.end {
-                            let log_local: DateTime<Local> = DateTime::from(log.start);
-                            let log_date = log_local.date_naive();
-                            let log_iso = log_local.iso_week();
-                            let log_week_key = (log_iso.year(), log_iso.week());
-                            
-                            let start_ts = log.start.timestamp();
-                            let end_ts = end.timestamp();
-                            let dur_sec = end_ts - start_ts;
-                            if dur_sec > 0 {
-                                let hrs = dur_sec as f64 / 3600.0;
-                                let log_entry = weekly_data.entry(log_week_key).or_default().entry(log_date).or_default();
-                                log_entry.2 += hrs;
-                            }
-                        }
+                         let log_local: DateTime<Local> = DateTime::from(log.start);
+                         days_active.insert(log_local.date_naive());
+                         if let Some(end) = log.end {
+                              let end_local: DateTime<Local> = DateTime::from(end);
+                              days_active.insert(end_local.date_naive());
+                         }
                     }
-                }
+                    
+                    for date in days_active {
+                        let iso = date.iso_week(); // Approximate, using date's iso week
+                         let week_key = (iso.year(), iso.week());
+                         let entry = weekly_data.entry(week_key).or_default().entry(date).or_default();
+                         
+                         // Check if already added to avoid dupes if multiple logs on same day?
+                         // The entry.0 is a Vec<TaskDto>. 
+                         // We just reconstructed it. 
+                         // To be safe, maybe check ID? But simplified: just push.
+                         // Optimization: verify uniqueness if needed.
+                         
+                         // Note: We don't add Estimate hours for Pending tasks to the "Verified/Completed Est" sum?
+                         // Ideally, "Total Est Hours" in history usually means "Velocity" (completed work).
+                         // If we add Pending work, it inflates velocity without completion.
+                         // Let's NOT add estimate for Pending tasks.
+                         
+                         entry.0.push(task_dto.clone());
+                    }
+                },
+                _ => {}
             }
         }
         
@@ -125,5 +159,29 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
         }
         
         Ok(history)
+    }
+}
+
+// Helper to distribute logs into weekly_data
+fn distribute_logs(
+    logs: &Vec<crate::model::task::TimeLog>, 
+    weekly_data: &mut HashMap<(i32, u32), HashMap<chrono::NaiveDate, (Vec<TaskDto>, f64, f64, f64)>>
+) {
+    for log in logs {
+        if let Some(end) = log.end {
+            let log_local: DateTime<Local> = DateTime::from(log.start);
+            let log_date = log_local.date_naive();
+            let log_iso = log_local.iso_week();
+            let log_week_key = (log_iso.year(), log_iso.week());
+            
+            let start_ts = log.start.timestamp();
+            let end_ts = end.timestamp();
+            let dur_sec = end_ts - start_ts;
+            if dur_sec > 0 {
+                let hrs = dur_sec as f64 / 3600.0;
+                let log_entry = weekly_data.entry(log_week_key).or_default().entry(log_date).or_default();
+                log_entry.2 += hrs;
+            }
+        }
     }
 }
