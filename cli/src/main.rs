@@ -3,8 +3,9 @@ mod history;
 
 use clap::Parser;
 use todoism_core::service::task_service::{TaskService, SortStrategy};
+use todoism_core::usecase::history::HistoryUseCase;
 use todoism_core::repository::{TaskRepository, DailyLogRepository};
-use todoism_core::{greet, Task, FileTaskRepository, FileDailyLogRepository, parse_args, expand_key, parse_human_date, Priority};
+use todoism_core::{greet, Task, FileTaskRepository, FileDailyLogRepository, parse_args, expand_key, parse_human_date, Priority, DailyLogService};
 use anyhow::{Result};
 use std::collections::HashMap;
 
@@ -46,7 +47,12 @@ fn parse_priority_str(pri_str: &str) -> Priority {
 fn main() -> Result<()> {
     let repo = FileTaskRepository::new(None)?;
     let log_repo = FileDailyLogRepository::new(None)?;
-    let service = TaskService::new(repo, log_repo);
+    let service = TaskService::new(repo.clone()); // Cloning because HistoryUseCase needs repo too? 
+                                          // TaskRepository traits usually require &self on methods, so maybe we can share reference?
+                                          // FileTaskRepository derives Clone? Let's check. 
+                                          // If not, we might need to wrap in Arc or clone if cheap.
+                                          // FileTaskRepository usually just holds path, so cheap to clone.
+    let daily_log_service = DailyLogService::new(log_repo);
 
     // Define known keys for expansion
     let known_keys = vec!["due", "project", "priority", "description", "estimate"];
@@ -149,7 +155,8 @@ fn main() -> Result<()> {
             }
         },
         Some(Commands::History) => {
-             history::show_history(&service)?;
+             let history_usecase = HistoryUseCase::new(&service.repo, &daily_log_service); // accessing service.repo requires it to be pub. I made it pub in TaskService.
+             history::show_history(&history_usecase)?;
         },
         Some(Commands::Tui) => {
             tui::run()?;

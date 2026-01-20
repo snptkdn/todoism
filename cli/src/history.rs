@@ -1,5 +1,5 @@
 use todoism_core::service::dto::{WeeklyHistory, DailyHistory};
-use todoism_core::service::task_service::TaskService;
+use todoism_core::usecase::history::HistoryUseCase;
 use todoism_core::repository::{TaskRepository, DailyLogRepository}; 
 use tabled::{Table, Tabled};
 use tabled::settings::{Style, Color, Modify};
@@ -21,8 +21,8 @@ struct HistoryRow {
     act: String,
 }
 
-pub fn show_history<R: TaskRepository, L: DailyLogRepository>(task_service: &TaskService<R, L>) -> Result<()> {
-    let weekly_history = task_service.get_weekly_history()?;
+pub fn show_history<R: TaskRepository, L: DailyLogRepository>(history_usecase: &HistoryUseCase<R, L>) -> Result<()> {
+    let weekly_history = history_usecase.get_weekly_history()?;
 
     if weekly_history.is_empty() {
         println!("No completed tasks found in history.");
