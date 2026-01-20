@@ -1,8 +1,7 @@
 use crate::model::task::{Task, Priority, TaskState};
-use crate::model::daily_log::DailyLog;
-use crate::repository::{TaskRepository, DailyLogRepository};
+use crate::repository::TaskRepository;
 use crate::time::parse_duration;
-use crate::service::dto::{TaskDto, WeeklyHistory, DailyHistory, HistoryStats};
+use crate::service::dto::TaskDto;
 use chrono::{Utc, Datelike, Local, NaiveDate, DateTime};
 use anyhow::Result;
 use uuid::Uuid;
@@ -27,14 +26,17 @@ const COEFFICIENT_PRIORITY: f64 = 6.0;
 const COEFFICIENT_AGE: f64 = 2.0;
 const COEFFICIENT_ESTIMATE: f64 = 5.0;
 
-pub struct TaskService<R: TaskRepository, L: DailyLogRepository> {
-    repo: R,
-    daily_log_repo: L,
+pub struct TaskService<R: TaskRepository> {
+    pub repo: R, // Making repo public so UseCase can access it, or expose get_all methods. UseCases usually access Repos directly. 
+                 // But HistoryUseCase currently takes &TaskService but I changed it to take &R. 
+                 // Wait, I implemented HistoryUseCase to take &R. 
+                 // So TaskService doesn't need to expose repo if UseCase gets repo instance separately. 
+                 // OR TaskService exposes repo. Let's make it pub for now or just allow UseCase to have the repo reference passed in main.
 }
 
-impl<R: TaskRepository, L: DailyLogRepository> TaskService<R, L> {
-    pub fn new(repo: R, daily_log_repo: L) -> Self {
-        Self { repo, daily_log_repo }
+impl<R: TaskRepository> TaskService<R> {
+    pub fn new(repo: R) -> Self {
+        Self { repo }
     }
 
     pub fn create_task(&self, task: Task) -> Result<TaskDto> {
@@ -104,114 +106,10 @@ impl<R: TaskRepository, L: DailyLogRepository> TaskService<R, L> {
         sort_tasks(tasks, strategy);
     }
 
-    pub fn get_weekly_history(&self) -> Result<Vec<WeeklyHistory>> {
-        let tasks = self.repo.list()?;
-        let completed_tasks: Vec<&Task> = tasks.iter()
-            .filter(|t| matches!(t.state, TaskState::Completed { .. }))
-            .collect();
-
-        // Group by ISO Week
-        let mut tasks_by_week: HashMap<(i32, u32), Vec<&Task>> = HashMap::new();
-
-        for task in &completed_tasks {
-            if let TaskState::Completed { completed_at, .. } = &task.state {
-                let local_dt: DateTime<Local> = DateTime::from(*completed_at);
-                let iso_week = local_dt.iso_week();
-                let key = (iso_week.year(), iso_week.week());
-                tasks_by_week.entry(key).or_default().push(task);
-            }
-        }
-
-        let mut sorted_weeks: Vec<_> = tasks_by_week.keys().cloned().collect();
-        sorted_weeks.sort_by(|a, b| b.cmp(a));
-
-        let mut history = Vec::new();
-
-        for (year, week) in sorted_weeks {
-            let tasks_in_week = tasks_by_week.get(&(year, week)).unwrap();
-            
-            // Group by Day
-            let mut tasks_by_day: HashMap<NaiveDate, Vec<&Task>> = HashMap::new();
-             for task in tasks_in_week {
-                 if let TaskState::Completed { completed_at, .. } = &task.state {
-                    let local_dt: DateTime<Local> = DateTime::from(*completed_at);
-                    tasks_by_day.entry(local_dt.date_naive()).or_default().push(task);
-                }
-            }
-            
-            let mut sorted_days: Vec<_> = tasks_by_day.keys().cloned().collect();
-            sorted_days.sort_by(|a, b| b.cmp(a));
-            
-            let mut daily_histories = Vec::new();
-            let mut week_est_total = 0.0;
-            let mut week_act_total = 0.0;
-            let mut week_mtg_total = 0.0;
-
-            for day in sorted_days {
-                let daily_tasks = tasks_by_day.get(&day).unwrap();
-                let mut day_dtos = Vec::new();
-                let mut day_est = 0.0;
-                let mut day_act = 0.0;
-                
-                // Get meeting hours
-                let meeting_hours = self.daily_log_repo.get(day).ok().flatten().map(|l| l.total_hours()).unwrap_or(0.0);
-
-                for task in daily_tasks {
-                    let est_hours = parse_est_hours(&task.estimate);
-                    let act_hours = if let TaskState::Completed { actual_duration, .. } = &task.state {
-                        *actual_duration as f64 / 3600.0
-                    } else {
-                        0.0
-                    };
-
-                    day_est += est_hours;
-                    day_act += act_hours;
-                    
-                    day_dtos.push(TaskDto::from_entity((*task).clone(), 0.0));
-                }
-                
-                week_est_total += day_est;
-                week_act_total += day_act;
-                week_mtg_total += meeting_hours;
-
-                daily_histories.push(DailyHistory {
-                    date: day.format("%Y-%m-%d").to_string(),
-                    day_of_week: day.format("%a").to_string(),
-                    tasks: day_dtos,
-                    stats: HistoryStats {
-                        total_est_hours: day_est,
-                        total_act_hours: day_act,
-                        meeting_hours: meeting_hours,
-                    }
-                });
-            }
-
-            history.push(WeeklyHistory {
-                year,
-                week,
-                days: daily_histories,
-                stats: HistoryStats {
-                    total_est_hours: week_est_total,
-                    total_act_hours: week_act_total,
-                    meeting_hours: week_mtg_total,
-                }
-            });
-        }
-        
-        Ok(history)
-    }
-
-    pub fn has_daily_log(&self, date: chrono::NaiveDate) -> Result<bool> {
-        Ok(self.daily_log_repo.get(date)?.is_some())
-    }
-
-    pub fn add_daily_log(&self, date: chrono::NaiveDate, hours: f64) -> Result<()> {
-        let log = DailyLog::new(date, hours);
-        self.daily_log_repo.upsert(log)
-    }
+// get_weekly_history, has_daily_log, add_daily_log removed
 }
 
-fn parse_est_hours(est_opt: &Option<String>) -> f64 {
+pub fn parse_est_hours(est_opt: &Option<String>) -> f64 {
     est_opt.as_ref()
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(0.0)

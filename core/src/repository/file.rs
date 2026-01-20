@@ -11,6 +11,7 @@ use crate::repository::traits::TaskRepository;
 
 const DEFAULT_FILE_NAME: &str = "tasks.json";
 
+#[derive(Clone)]
 pub struct FileTaskRepository {
     file_path: PathBuf,
 }
