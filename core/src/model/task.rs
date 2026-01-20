@@ -30,7 +30,11 @@ pub enum TaskState {
     },
     Completed {
         completed_at: DateTime<Utc>,
-        actual_duration: u64,
+        #[serde(default)]
+        time_logs: Vec<TimeLog>,
+        // Backwards compatibility for old data that only has actual_duration
+        #[serde(default)]
+        actual_duration: Option<u64>,
     },
     Deleted,
 }
@@ -112,31 +116,23 @@ impl Task {
             return;
         }
         
-        // Extract logs if Pending, calculate duration
-        let duration = if let TaskState::Pending { time_logs } = &mut self.state {
+        // Extract logs if Pending
+        let logs = if let TaskState::Pending { time_logs } = &mut self.state {
             // Stop tracking first if running
             if let Some(last_log) = time_logs.last_mut() {
                 if last_log.end.is_none() {
                     last_log.end = Some(Utc::now());
                 }
             }
-            
-            let mut total_seconds = 0u64;
-            for log in time_logs.iter() {
-                if let Some(end) = log.end {
-                    if let Ok(d) = end.signed_duration_since(log.start).to_std() {
-                        total_seconds += d.as_secs();
-                    }
-                }
-            }
-            total_seconds
+            std::mem::take(time_logs)
         } else {
-            0
+            Vec::new()
         };
 
         self.state = TaskState::Completed {
             completed_at: Utc::now(),
-            actual_duration: duration,
+            time_logs: logs,
+            actual_duration: None, // No longer needed for new completions
         };
     }
     
@@ -193,8 +189,10 @@ mod tests {
         // 4. Complete task (should auto-stop and switch state)
         task.complete();
         
-        if let TaskState::Completed { actual_duration, completed_at: _ } = &task.state {
-            assert!(*actual_duration >= 0);
+        if let TaskState::Completed { time_logs, actual_duration, completed_at: _ } = &task.state {
+            assert!(!time_logs.is_empty(), "Time logs should be preserved");
+            assert_eq!(time_logs.len(), 2); 
+            assert!(actual_duration.is_none(), "New completions should not set actual_duration");
         } else {
             panic!("Task should be Completed");
         }

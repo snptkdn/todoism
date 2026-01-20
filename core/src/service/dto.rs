@@ -38,8 +38,21 @@ impl TaskDto {
                 }
                 ("Pending", tracking, total, None)
             },
-            TaskState::Completed { completed_at, actual_duration } => {
-                ("Completed", false, *actual_duration, Some(*completed_at))
+            TaskState::Completed { completed_at, time_logs, actual_duration } => {
+                let total = if !time_logs.is_empty() {
+                    let mut sum = 0;
+                    for log in time_logs {
+                         if let Some(end) = log.end {
+                            if let Ok(duration) = end.signed_duration_since(log.start).to_std() {
+                                sum += duration.as_secs();
+                            }
+                        }
+                    }
+                    sum
+                } else {
+                    actual_duration.unwrap_or(0)
+                };
+                ("Completed", false, total, Some(*completed_at))
             },
             TaskState::Deleted => {
                 ("Deleted", false, 0, None)

@@ -22,95 +22,104 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
     }
 
     pub fn get_weekly_history(&self) -> Result<Vec<WeeklyHistory>> {
+        let mut weekly_data: HashMap<(i32, u32), HashMap<chrono::NaiveDate, (Vec<TaskDto>, f64, f64, f64)>> = HashMap::new();
+        // Map: (Year, Week) -> Date -> (Tasks, EstHours, ActHours, MtgHours)
+
         let tasks = self.task_repo.list()?;
         let completed_tasks: Vec<_> = tasks.iter()
             .filter(|t| matches!(t.state, TaskState::Completed { .. }))
             .collect();
 
-        // Group by ISO Week
-        let mut tasks_by_week: HashMap<(i32, u32), Vec<&crate::model::task::Task>> = HashMap::new();
-
+        // Pass 1: Place tasks in their completion slots (for listing) and distribute actual hours
         for task in &completed_tasks {
-            if let TaskState::Completed { completed_at, .. } = &task.state {
+            if let TaskState::Completed { completed_at, actual_duration, time_logs } = &task.state {
                 let local_dt: DateTime<Local> = DateTime::from(*completed_at);
-                let iso_week = local_dt.iso_week();
-                let key = (iso_week.year(), iso_week.week());
-                tasks_by_week.entry(key).or_default().push(task);
-            }
-        }
+                let date = local_dt.date_naive();
+                let iso = local_dt.iso_week();
+                let week_key = (iso.year(), iso.week());
 
-        let mut sorted_weeks: Vec<_> = tasks_by_week.keys().cloned().collect();
-        sorted_weeks.sort_by(|a, b| b.cmp(a));
-
-        let mut history = Vec::new();
-
-        for (year, week) in sorted_weeks {
-            let tasks_in_week = tasks_by_week.get(&(year, week)).unwrap();
-            
-            // Group by Day
-            let mut tasks_by_day: HashMap<chrono::NaiveDate, Vec<&crate::model::task::Task>> = HashMap::new();
-             for task in tasks_in_week {
-                 if let TaskState::Completed { completed_at, .. } = &task.state {
-                    let local_dt: DateTime<Local> = DateTime::from(*completed_at);
-                    tasks_by_day.entry(local_dt.date_naive()).or_default().push(task);
+                // Ensure the day entry exists for the completion date
+                let day_entry_for_completion = weekly_data.entry(week_key).or_default().entry(date).or_default();
+                day_entry_for_completion.0.push(TaskDto::from_entity((*task).clone(), 0.0));
+                
+                let est = parse_est_hours(&task.estimate);
+                day_entry_for_completion.1 += est; // Add to Est total for that day
+                
+                // For Act hours:
+                // If we have logs, we distribute them.
+                // If no logs (legacy), we attribute actual_duration here.
+                if time_logs.is_empty() {
+                     if let Some(dur) = actual_duration {
+                         day_entry_for_completion.2 += *dur as f64 / 3600.0;
+                     }
+                } else {
+                    // Iterate logs and distribute to respective days/weeks
+                    for log in time_logs {
+                        if let Some(end) = log.end {
+                            let log_local: DateTime<Local> = DateTime::from(log.start);
+                            let log_date = log_local.date_naive();
+                            let log_iso = log_local.iso_week();
+                            let log_week_key = (log_iso.year(), log_iso.week());
+                            
+                            let start_ts = log.start.timestamp();
+                            let end_ts = end.timestamp();
+                            let dur_sec = end_ts - start_ts;
+                            if dur_sec > 0 {
+                                let hrs = dur_sec as f64 / 3600.0;
+                                let log_entry = weekly_data.entry(log_week_key).or_default().entry(log_date).or_default();
+                                log_entry.2 += hrs;
+                            }
+                        }
+                    }
                 }
             }
-            
-            let mut sorted_days: Vec<_> = tasks_by_day.keys().cloned().collect();
+        }
+        
+        // Pass 2: Generate final history structure, adding meeting hours
+        let mut history = Vec::new();
+        let mut sorted_weeks: Vec<_> = weekly_data.keys().cloned().collect();
+        sorted_weeks.sort_by(|a, b| b.cmp(a));
+
+        for (year, week) in sorted_weeks {
+            let days_map = weekly_data.get(&(year, week)).unwrap();
+            let mut sorted_days: Vec<_> = days_map.keys().cloned().collect();
             sorted_days.sort_by(|a, b| b.cmp(a));
             
             let mut daily_histories = Vec::new();
-            let mut week_est_total = 0.0;
-            let mut week_act_total = 0.0;
-            let mut week_mtg_total = 0.0;
-
+            let mut week_est = 0.0;
+            let mut week_act = 0.0;
+            let mut week_mtg = 0.0;
+            
             for day in sorted_days {
-                let daily_tasks = tasks_by_day.get(&day).unwrap();
-                let mut day_dtos = Vec::new();
-                let mut day_est = 0.0;
-                let mut day_act = 0.0;
+                let (day_tasks, est, act, _) = days_map.get(&day).cloned().unwrap(); 
                 
-                // Get meeting hours
-                let meeting_hours = self.daily_log_service.get_log(day).ok().flatten().map(|l| l.total_hours()).unwrap_or(0.0);
-
-                for task in daily_tasks {
-                    let est_hours = parse_est_hours(&task.estimate); // Need to handle this helper
-                    let act_hours = if let TaskState::Completed { actual_duration, .. } = &task.state {
-                        *actual_duration as f64 / 3600.0
-                    } else {
-                        0.0
-                    };
-
-                    day_est += est_hours;
-                    day_act += act_hours;
-                    
-                    day_dtos.push(TaskDto::from_entity((*task).clone(), 0.0));
-                }
+                // Get meeting hours for this day
+                let mtg = self.daily_log_service.get_log(day).ok().flatten().map(|l| l.total_hours()).unwrap_or(0.0);
                 
-                week_est_total += day_est;
-                week_act_total += day_act;
-                week_mtg_total += meeting_hours;
-
+                week_est += est;
+                week_act += act;
+                week_mtg += mtg;
+                
                 daily_histories.push(DailyHistory {
                     date: day.format("%Y-%m-%d").to_string(),
                     day_of_week: day.format("%a").to_string(),
-                    tasks: day_dtos,
+                    tasks: day_tasks,
                     stats: HistoryStats {
-                        total_est_hours: day_est,
-                        total_act_hours: day_act,
-                        meeting_hours: meeting_hours,
+                        total_est_hours: est,
+                        total_act_hours: act,
+                        meeting_hours: mtg,
                     }
                 });
             }
-
+            
             history.push(WeeklyHistory {
                 year,
                 week,
                 days: daily_histories,
                 stats: HistoryStats {
-                    total_est_hours: week_est_total,
-                    total_act_hours: week_act_total,
-                    meeting_hours: week_mtg_total,
+                    total_est_hours: week_est,
+                    total_act_hours: week_act,
+                    meeting_hours: week_mtg,
                 }
             });
         }
