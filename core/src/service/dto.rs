@@ -68,6 +68,8 @@ impl TaskDto {
 pub struct HistoryStats {
     pub total_est_hours: f64,
     pub total_act_hours: f64,
+    #[serde(default)]
+    pub meeting_hours: f64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]

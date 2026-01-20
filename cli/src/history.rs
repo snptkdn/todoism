@@ -1,6 +1,6 @@
 use todoism_core::service::dto::{WeeklyHistory, DailyHistory};
 use todoism_core::service::task_service::TaskService;
-use todoism_core::repository::TaskRepository; // Assuming TaskRepository trait is needed for TaskService generic
+use todoism_core::repository::{TaskRepository, DailyLogRepository}; 
 use tabled::{Table, Tabled};
 use tabled::settings::{Style, Color, Modify};
 use tabled::settings::object::{Rows};
@@ -21,7 +21,7 @@ struct HistoryRow {
     act: String,
 }
 
-pub fn show_history<R: TaskRepository>(task_service: &TaskService<R>) -> Result<()> {
+pub fn show_history<R: TaskRepository, L: DailyLogRepository>(task_service: &TaskService<R, L>) -> Result<()> {
     let weekly_history = task_service.get_weekly_history()?;
 
     if weekly_history.is_empty() {
@@ -31,21 +31,23 @@ pub fn show_history<R: TaskRepository>(task_service: &TaskService<R>) -> Result<
 
     for week_entry in weekly_history {
         // Print Week Header
-        println!("\n\x1b[1;36mWeek {}, {}\x1b[0m (Est: {:.1}h, Act: {:.1}h)", 
+        println!("\n\x1b[1;36mWeek {}, {}\x1b[0m (Est: {:.1}h, Act: {:.1}h, Mtg: {:.1}h)", 
                  week_entry.week, 
                  week_entry.year, 
                  week_entry.stats.total_est_hours, 
-                 week_entry.stats.total_act_hours);
+                 week_entry.stats.total_act_hours,
+                 week_entry.stats.meeting_hours);
 
         // Construct Table Rows
         let mut rows = Vec::new();
 
         for day_entry in week_entry.days {
-            let day_header = format!("{} ({})\nE:{:.1}h A:{:.1}h",
+            let day_header = format!("{} ({})\nE:{:.1}h A:{:.1}h M:{:.1}h",
                 day_entry.date,
                 day_entry.day_of_week,
                 day_entry.stats.total_est_hours,
-                day_entry.stats.total_act_hours
+                day_entry.stats.total_act_hours,
+                day_entry.stats.meeting_hours
             );
 
             // Sort tasks by ID for stability in display

@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, BorderType, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, BorderType, Paragraph, Row, Table, Wrap, Clear},
     Frame,
 };
 use todoism_core::Priority;
@@ -82,8 +82,87 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                     main_chunks[2].y + 1,
                 )
             );
+        },
+        InputMode::MeetingHoursPrompt => {
+            let block = Block::default()
+                .title(" Daily Check-In ")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .style(Style::default().bg(Color::Black));
+            
+            let area = centered_rect(60, 20, size); // Increased width might be better but 60% is already quite wide. Let's check fixed width or min width.
+            // Actually user said "too narrow" (semakusugiru).
+            // Maybe they meant height? "Input column is too narrow" -> "Nyuryoku ran ga semasugiru"
+            // Let's try 80% width.
+            let area = centered_rect(80, 25, size);
+            f.render_widget(Clear, area); // Clear background
+            f.render_widget(block, area);
+
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(2)
+                .constraints([
+                    Constraint::Length(3),
+                    Constraint::Min(1),
+                ])
+                .split(area);
+
+            let text = Paragraph::new("How many hours of meetings do you have today?")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+            f.render_widget(text, chunks[0]);
+
+            let input = Paragraph::new(app.input.as_str())
+                .style(Style::default().fg(Color::Yellow))
+                .block(Block::default().borders(Borders::ALL).title(" Hours "))
+                .alignment(Alignment::Center);
+            f.render_widget(input, chunks[1]);
+            
+            // Cursor (approximate center for simplicity, or just put at end)
+             let cursor_x = app.input.width() as u16;
+             // Calculate center of input box
+             let input_area = chunks[1];
+             let center_x = input_area.x + input_area.width / 2;
+             // Simple left-aligned cursor within centered text logic is hard, 
+             // let's just place it relative to input start if alignment is left, 
+             // IF alignment is center, it's tricky. 
+             // Let's change alignment to Left for input for easier cursor positioning
+             
+             // Re-render input with Left alignment for now to be safe
+             let input = Paragraph::new(app.input.as_str())
+                .style(Style::default().fg(Color::Yellow))
+                .block(Block::default().borders(Borders::ALL).title(" Hours "))
+                .alignment(Alignment::Left);
+            f.render_widget(input, chunks[1]);
+
+             f.set_cursor_position(
+                (
+                    chunks[1].x + 1 + cursor_x,
+                    chunks[1].y + 1,
+                )
+            );
         }
     }
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
 
 fn draw_task_list(f: &mut Frame, app: &mut App, area: Rect) {

@@ -1,5 +1,6 @@
 use crate::model::task::{Task, Priority, TaskState};
-use crate::repository::TaskRepository;
+use crate::model::daily_log::DailyLog;
+use crate::repository::{TaskRepository, DailyLogRepository};
 use crate::time::parse_duration;
 use crate::service::dto::{TaskDto, WeeklyHistory, DailyHistory, HistoryStats};
 use chrono::{Utc, Datelike, Local, NaiveDate, DateTime};
@@ -26,13 +27,14 @@ const COEFFICIENT_PRIORITY: f64 = 6.0;
 const COEFFICIENT_AGE: f64 = 2.0;
 const COEFFICIENT_ESTIMATE: f64 = 5.0;
 
-pub struct TaskService<R: TaskRepository> {
+pub struct TaskService<R: TaskRepository, L: DailyLogRepository> {
     repo: R,
+    daily_log_repo: L,
 }
 
-impl<R: TaskRepository> TaskService<R> {
-    pub fn new(repo: R) -> Self {
-        Self { repo }
+impl<R: TaskRepository, L: DailyLogRepository> TaskService<R, L> {
+    pub fn new(repo: R, daily_log_repo: L) -> Self {
+        Self { repo, daily_log_repo }
     }
 
     pub fn create_task(&self, task: Task) -> Result<TaskDto> {
@@ -143,12 +145,16 @@ impl<R: TaskRepository> TaskService<R> {
             let mut daily_histories = Vec::new();
             let mut week_est_total = 0.0;
             let mut week_act_total = 0.0;
+            let mut week_mtg_total = 0.0;
 
             for day in sorted_days {
                 let daily_tasks = tasks_by_day.get(&day).unwrap();
                 let mut day_dtos = Vec::new();
                 let mut day_est = 0.0;
                 let mut day_act = 0.0;
+                
+                // Get meeting hours
+                let meeting_hours = self.daily_log_repo.get(day).ok().flatten().map(|l| l.total_hours()).unwrap_or(0.0);
 
                 for task in daily_tasks {
                     let est_hours = parse_est_hours(&task.estimate);
@@ -166,6 +172,7 @@ impl<R: TaskRepository> TaskService<R> {
                 
                 week_est_total += day_est;
                 week_act_total += day_act;
+                week_mtg_total += meeting_hours;
 
                 daily_histories.push(DailyHistory {
                     date: day.format("%Y-%m-%d").to_string(),
@@ -174,6 +181,7 @@ impl<R: TaskRepository> TaskService<R> {
                     stats: HistoryStats {
                         total_est_hours: day_est,
                         total_act_hours: day_act,
+                        meeting_hours: meeting_hours,
                     }
                 });
             }
@@ -185,11 +193,21 @@ impl<R: TaskRepository> TaskService<R> {
                 stats: HistoryStats {
                     total_est_hours: week_est_total,
                     total_act_hours: week_act_total,
+                    meeting_hours: week_mtg_total,
                 }
             });
         }
         
         Ok(history)
+    }
+
+    pub fn has_daily_log(&self, date: chrono::NaiveDate) -> Result<bool> {
+        Ok(self.daily_log_repo.get(date)?.is_some())
+    }
+
+    pub fn add_daily_log(&self, date: chrono::NaiveDate, hours: f64) -> Result<()> {
+        let log = DailyLog::new(date, hours);
+        self.daily_log_repo.upsert(log)
     }
 }
 

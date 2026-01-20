@@ -2,9 +2,9 @@ mod tui;
 mod history;
 
 use clap::Parser;
-use todoism_core::{greet, Task, FileTaskRepository, parse_args, expand_key, parse_human_date, Priority};
 use todoism_core::service::task_service::{TaskService, SortStrategy};
-use todoism_core::repository::TaskRepository;
+use todoism_core::repository::{TaskRepository, DailyLogRepository};
+use todoism_core::{greet, Task, FileTaskRepository, FileDailyLogRepository, parse_args, expand_key, parse_human_date, Priority};
 use anyhow::{Result};
 use std::collections::HashMap;
 
@@ -45,7 +45,8 @@ fn parse_priority_str(pri_str: &str) -> Priority {
 
 fn main() -> Result<()> {
     let repo = FileTaskRepository::new(None)?;
-    let service = TaskService::new(repo);
+    let log_repo = FileDailyLogRepository::new(None)?;
+    let service = TaskService::new(repo, log_repo);
 
     // Define known keys for expansion
     let known_keys = vec!["due", "project", "priority", "description", "estimate"];
@@ -131,7 +132,7 @@ fn main() -> Result<()> {
                     let id_str = task.id.to_string();
                     let short_id = if id_str.len() > 8 { &id_str[..8] } else { &id_str }; 
                     let pri = format!("{:?}", task.priority);
-                    let due = task.due.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "-".to_string());
+                    let due = task.due.map(|d: chrono::DateTime<chrono::Utc>| d.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "-".to_string());
                     let project = task.project.clone().unwrap_or_else(|| "-".to_string());
                     // TaskDto now has the score directly
                     let score = task.score;

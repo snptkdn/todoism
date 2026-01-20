@@ -155,7 +155,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
 
 
 
-                            InputMode::Adding | InputMode::Modifying => {
+                            InputMode::Adding | InputMode::Modifying | InputMode::MeetingHoursPrompt => {
 
 
 

@@ -5,7 +5,7 @@ pub mod time;
 pub mod service;
 
 pub use model::task::{Task, Priority, TaskState};
-pub use repository::{TaskRepository, FileTaskRepository};
+pub use repository::{TaskRepository, FileTaskRepository, FileDailyLogRepository};
 pub use input::{parse_args, expand_key, ParsedInput};
 pub use time::{parse_human_date, parse_duration};
 pub use service::task_service::{TaskService, SortStrategy, calculate_score, sort_tasks};

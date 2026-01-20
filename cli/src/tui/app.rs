@@ -1,16 +1,18 @@
 use ratatui::widgets::TableState;
-use todoism_core::{FileTaskRepository, Task, TaskDto, parse_args, expand_key, parse_human_date, Priority};
+use todoism_core::{FileTaskRepository, FileDailyLogRepository, Task, TaskDto, parse_args, expand_key, parse_human_date, Priority};
 use todoism_core::service::task_service::{TaskService, SortStrategy};
 use std::collections::HashMap;
+use chrono::Local;
 
 pub enum InputMode {
     Normal,
     Adding,
     Modifying,
+    MeetingHoursPrompt,
 }
 
 pub struct App {
-    pub service: TaskService<FileTaskRepository>,
+    pub service: TaskService<FileTaskRepository, FileDailyLogRepository>,
     pub tasks: Vec<TaskDto>,
     pub state: TableState,
     pub input: String,
@@ -21,7 +23,16 @@ pub struct App {
 impl App {
     pub fn new() -> App {
         let repo = FileTaskRepository::new(None).expect("Failed to initialize repository");
-        let service = TaskService::new(repo);
+        let log_repo = FileDailyLogRepository::new(None).expect("Failed to initialize log repository");
+        let service = TaskService::new(repo, log_repo);
+        
+        let mut input_mode = InputMode::Normal;
+        let today = Local::now().date_naive();
+        if let Ok(has_log) = service.has_daily_log(today) {
+            if !has_log {
+                input_mode = InputMode::MeetingHoursPrompt;
+            }
+        }
         
         let all_tasks = service.get_sorted_tasks(SortStrategy::Urgency).unwrap_or_default();
         let tasks: Vec<TaskDto> = all_tasks.into_iter()
@@ -37,7 +48,7 @@ impl App {
             tasks, 
             state,
             input: String::new(),
-            input_mode: InputMode::Normal,
+            input_mode,
             cursor_position: 0,
         }
     }
@@ -120,7 +131,7 @@ impl App {
             // Filter out completed and deleted tasks for the main view
             self.tasks = tasks.into_iter()
                 .filter(|t| t.status != "Completed" && t.status != "Deleted")
-                .collect();
+                .collect::<Vec<TaskDto>>();
         }
     }
 
@@ -177,6 +188,7 @@ impl App {
         match self.input_mode {
             InputMode::Adding => self.submit_add(),
             InputMode::Modifying => self.submit_modify(),
+            InputMode::MeetingHoursPrompt => self.submit_meeting_hours(),
             InputMode::Normal => {},
         }
 
@@ -256,6 +268,24 @@ impl App {
                  }
              }
              self.reload_tasks();
+        }
+    }
+
+    fn submit_meeting_hours(&mut self) {
+        if let Ok(hours) = self.input.trim().parse::<f64>() {
+            let today = Local::now().date_naive();
+            let _ = self.service.add_daily_log(today, hours);
+            self.input_mode = InputMode::Normal;
+        } else {
+             // Invalid input, maybe clear or keep for correction. 
+             // For now, let's just clear and stay in mode or maybe provide visual feedback (not implemented in this step).
+             // Let's assume user might retry. 
+             // If input is empty/invalid, we could default to 0.0 or force them to type correct number.
+             if self.input.trim() == "0" || self.input.trim().is_empty() {
+                  let today = Local::now().date_naive();
+                 let _ = self.service.add_daily_log(today, 0.0);
+                 self.input_mode = InputMode::Normal;
+             }
         }
     }
 }
