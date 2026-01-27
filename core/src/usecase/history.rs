@@ -1,23 +1,24 @@
-use crate::repository::TaskRepository;
+use crate::repository::{TaskRepository, DailyLogRepository, FileStatsRepository};
 use crate::service::daily_log_service::DailyLogService;
-use crate::repository::DailyLogRepository;
 use crate::service::dto::{TaskDto, WeeklyHistory, DailyHistory, HistoryStats};
 use crate::model::task::TaskState;
-use crate::service::task_service::parse_est_hours; // Need to expose or duplicate this helper
-use chrono::{DateTime, Local, Datelike};
+use crate::service::task_service::parse_est_hours;
+use chrono::{DateTime, Local, Datelike, NaiveDate};
 use anyhow::Result;
 use std::collections::HashMap;
 
 pub struct HistoryUseCase<'a, R: TaskRepository, L: DailyLogRepository> {
     task_repo: &'a R,
     daily_log_service: &'a DailyLogService<L>,
+    stats_repo: &'a FileStatsRepository,
 }
 
 impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
-    pub fn new(task_repo: &'a R, daily_log_service: &'a DailyLogService<L>) -> Self {
+    pub fn new(task_repo: &'a R, daily_log_service: &'a DailyLogService<L>, stats_repo: &'a FileStatsRepository) -> Self {
         Self {
             task_repo,
             daily_log_service,
+            stats_repo,
         }
     }
 
@@ -25,6 +26,27 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
         let mut weekly_data: HashMap<(i32, u32), HashMap<chrono::NaiveDate, (Vec<TaskDto>, f64, f64, f64)>> = HashMap::new();
         // Map: (Year, Week) -> Date -> (Tasks, EstHours, ActHours, MtgHours)
 
+        // 1. Load from Stats Repository (Archived Data)
+        let stats_list = self.stats_repo.list_stats()?;
+        for monthly_stats in stats_list {
+            for (date_str, daily_stats) in monthly_stats.days {
+                if let Ok(date) = NaiveDate::parse_from_str(&date_str, "%Y-%m-%d") {
+                    // Determine Week
+                    // Note: We use ISO week to match other logic
+                    let iso = date.iso_week();
+                    let week_key = (iso.year(), iso.week());
+                    
+                    let entry = weekly_data.entry(week_key).or_default().entry(date).or_default();
+                    
+                    // Add stats
+                    entry.1 += daily_stats.est;
+                    entry.2 += daily_stats.act;
+                    entry.3 += daily_stats.mtg;
+                }
+            }
+        }
+
+        // 2. Load from Task Repository (Current Data)
         let tasks = self.task_repo.list()?;
         // Filter tasks: Completed tasks OR Pending tasks with time logs
         let eligible_tasks: Vec<_> = tasks.iter()
@@ -64,17 +86,6 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
                      }
                 },
                 TaskState::Pending { time_logs } => {
-                    // For pending tasks, we don't have a single "completion date".
-                    // We should list them on the days they were worked on? 
-                    // Or usually, checking history implies "what did I do today".
-                    // If I worked on it today, it should appear in today's history list.
-                    // But if I worked on it yesterday, it should appear in yesterday's list.
-                    // This means a single pending task might appear multiple times in history lists if worked on multiple days.
-                    
-                    // Logic: Iterate logs. For each Unique Day involved in logs, add this task to that day's list.
-                    // Warning: This duplicates the task in the list view, but that's arguably correct for a "timesheet" view.
-                    
-                    // Distribute logs first to get hours right
                     distribute_logs(time_logs, &mut weekly_data);
                     
                     // Now ensure task is listed on days it has activity
@@ -92,18 +103,6 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
                         let iso = date.iso_week(); // Approximate, using date's iso week
                          let week_key = (iso.year(), iso.week());
                          let entry = weekly_data.entry(week_key).or_default().entry(date).or_default();
-                         
-                         // Check if already added to avoid dupes if multiple logs on same day?
-                         // The entry.0 is a Vec<TaskDto>. 
-                         // We just reconstructed it. 
-                         // To be safe, maybe check ID? But simplified: just push.
-                         // Optimization: verify uniqueness if needed.
-                         
-                         // Note: We don't add Estimate hours for Pending tasks to the "Verified/Completed Est" sum?
-                         // Ideally, "Total Est Hours" in history usually means "Velocity" (completed work).
-                         // If we add Pending work, it inflates velocity without completion.
-                         // Let's NOT add estimate for Pending tasks.
-                         
                          entry.0.push(task_dto.clone());
                     }
                 },
@@ -130,11 +129,31 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
                 let (day_tasks, est, act, _) = days_map.get(&day).cloned().unwrap(); 
                 
                 // Get meeting hours for this day
+                // Note: We use DailyLogService to get meetings. 
+                // This fetches from `daily_logs.json`.
+                // If Stats JSON also had mtg, we summed it in Step 1.
+                // But typically ArchiveService doesn't set mtg in stats (as discussed).
+                // So `est` and `act` come from Stats+Tasks. `mtg` comes from DailyLogs+Stats(0).
+                // This seems correct for now.
+                
                 let mtg = self.daily_log_service.get_log(day).ok().flatten().map(|l| l.total_hours()).unwrap_or(0.0);
                 
+                // We shouldn't add `mtg` to `act` or `est` here, just pass it to HistoryStats.
+                // Wait, `weekly_data` stores `(Tasks, Est, Act, Mtg)`.
+                // In Step 1, we added stats.mtg to entry.3.
+                // Here we ignore entry.3? No.
+                // `entry` is (day_tasks, est, act, mtg_from_stats).
+                // We should combine `mtg_from_stats` + `mtg_from_repo`.
+                // `entry.3` has `mtg` from `stats_repo`.
+                // `mtg` var has `mtg` from `daily_log_repo`.
+                // Total mtg = entry.3 + mtg.
+                
+                let stats_mtg = weekly_data.get(&(year, week)).unwrap().get(&day).unwrap().3;
+                let total_mtg = mtg + stats_mtg;
+
                 week_est += est;
                 week_act += act;
-                week_mtg += mtg;
+                week_mtg += total_mtg;
                 
                 daily_histories.push(DailyHistory {
                     date: day.format("%Y-%m-%d").to_string(),
@@ -143,7 +162,7 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
                     stats: HistoryStats {
                         total_est_hours: est,
                         total_act_hours: act,
-                        meeting_hours: mtg,
+                        meeting_hours: total_mtg,
                     }
                 });
             }

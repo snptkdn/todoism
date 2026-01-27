@@ -5,8 +5,9 @@ mod stats;
 use clap::Parser;
 use todoism_core::service::task_service::{TaskService, SortStrategy};
 use todoism_core::usecase::history::HistoryUseCase;
-use todoism_core::repository::{TaskRepository, DailyLogRepository};
+use todoism_core::repository::{TaskRepository, DailyLogRepository, FileStatsRepository};
 use todoism_core::{greet, Task, FileTaskRepository, FileDailyLogRepository, parse_args, expand_key, parse_human_date, Priority, DailyLogService};
+use todoism_core::service::archive_service::ArchiveService;
 use anyhow::{Result};
 use std::collections::HashMap;
 
@@ -50,11 +51,13 @@ fn parse_priority_str(pri_str: &str) -> Priority {
 fn main() -> Result<()> {
     let repo = FileTaskRepository::new(None)?;
     let log_repo = FileDailyLogRepository::new(None)?;
-    let service = TaskService::new(repo.clone()); // Cloning because HistoryUseCase needs repo too? 
-                                          // TaskRepository traits usually require &self on methods, so maybe we can share reference?
-                                          // FileTaskRepository derives Clone? Let's check. 
-                                          // If not, we might need to wrap in Arc or clone if cheap.
-                                          // FileTaskRepository usually just holds path, so cheap to clone.
+    let stats_repo = FileStatsRepository::new(None)?;
+    
+    // Archive Logic
+    let archive_service = ArchiveService::new(repo.clone(), stats_repo.clone());
+    let _ = archive_service.archive_old_tasks(7); // Archive tasks older than 7 days
+
+    let service = TaskService::new(repo.clone()); 
     let daily_log_service = DailyLogService::new(log_repo);
 
     // Define known keys for expansion
@@ -158,11 +161,11 @@ fn main() -> Result<()> {
             }
         },
         Some(Commands::History) => {
-             let history_usecase = HistoryUseCase::new(&service.repo, &daily_log_service); // accessing service.repo requires it to be pub. I made it pub in TaskService.
+             let history_usecase = HistoryUseCase::new(&service.repo, &daily_log_service, &stats_repo); 
              history::show_history(&history_usecase)?;
         },
         Some(Commands::Stats) => {
-            stats::run(&service.repo, &daily_log_service)?;
+            stats::run(&service.repo, &daily_log_service, &stats_repo)?;
         },
         Some(Commands::Tui) => {
             tui::run()?;

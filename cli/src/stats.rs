@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Bar, BarChart, BarGroup, Block, Borders, BorderType, Paragraph, Gauge, Padding, Tabs},
 };
 use todoism_core::{
-    repository::{DailyLogRepository, TaskRepository},
+    repository::{DailyLogRepository, TaskRepository, FileStatsRepository},
     service::{daily_log_service::DailyLogService, dto::WeeklyHistory},
     usecase::history::HistoryUseCase,
 };
@@ -72,13 +72,13 @@ impl StatsApp {
     }
 }
 
-pub fn run<R, L>(task_repo: &R, daily_log_service: &DailyLogService<L>) -> Result<()>
+pub fn run<R, L>(task_repo: &R, daily_log_service: &DailyLogService<L>, stats_repo: &FileStatsRepository) -> Result<()>
 where
     R: TaskRepository,
     L: DailyLogRepository,
 {
     // Data setup
-    let usecase = HistoryUseCase::new(task_repo, daily_log_service);
+    let usecase = HistoryUseCase::new(task_repo, daily_log_service, stats_repo);
     let histories = usecase.get_weekly_history()?;
     
     if histories.is_empty() {
