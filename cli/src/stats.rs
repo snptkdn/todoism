@@ -233,8 +233,15 @@ fn ui(frame: &mut Frame, app: &StatsApp) {
 fn draw_heatmap(frame: &mut Frame, histories: &Vec<WeeklyHistory>, area: Rect) {
     // 1. Group by Year
     let mut years_map: std::collections::HashMap<i32, Vec<&WeeklyHistory>> = std::collections::HashMap::new();
+    let mut max_hours = 1.0; // Baseline minimum to avoid div by zero
+
     for h in histories {
         years_map.entry(h.year).or_default().push(h);
+        for d in &h.days {
+            if d.stats.total_act_hours > max_hours {
+                max_hours = d.stats.total_act_hours;
+            }
+        }
     }
     
     // 2. Sort Years Descending
@@ -244,17 +251,6 @@ fn draw_heatmap(frame: &mut Frame, histories: &Vec<WeeklyHistory>, area: Rect) {
     if sorted_years.is_empty() { return; }
 
     // 3. Calculate Layout
-    // Each year needs approx 8 lines (Border + MonthHeader + 4 GridLines + Spacer?)
-    // Actually grid is 7 lines (Mon-Sun).
-    // Layout:
-    //  Border Top
-    //  Month Header (1)
-    //  Spacer (1) - matching left col
-    //  Grid (7)
-    //  Border Bottom
-    // Total internal height = 1 + 1 + 7 = 9 lines.
-    // Plus borders = 11 lines per year block.
-    
     let year_height = 11;
     let total_height = area.height;
     
@@ -271,12 +267,12 @@ fn draw_heatmap(frame: &mut Frame, histories: &Vec<WeeklyHistory>, area: Rect) {
         
     for (i, &year) in visible_years.enumerate() {
         if let Some(year_data) = years_map.get(&year) {
-             draw_year_heatmap(frame, year, year_data, chunks[i]);
+             draw_year_heatmap(frame, year, year_data, chunks[i], max_hours);
         }
     }
 }
 
-fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistory>, area: Rect) {
+fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistory>, area: Rect, max_hours: f64) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -312,20 +308,6 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
         ])
         .split(grid_layout[1]);
 
-    // Render Logic (Similar to previous, but scoped to year_data)
-    // Note: year_data is already filtered by year.
-    // However, it might be sparse or unsorted?
-    // histories in `StatsApp` are sorted Descending (Newest first).
-    // So `year_data` (Vec<&WeeklyHistory>) is also Newest->Oldest.
-    
-    // We want Past->Present (Left->Right).
-    // So we need to reverse the order for display.
-    // Also we need to make sure we fill the whole year? 
-    // Or just available data? 
-    // If we want a full calendar grid, we might need 52/53 weeks.
-    // Let's stick to "Available Data" for now to avoid complexity of empty weeks generation.
-    // But for a "Calendar" look, fixed width is better.
-    
     // Let's reverse to get Jan -> Dec
     let view_slice: Vec<&&WeeklyHistory> = histories.iter().rev().collect();
     
@@ -389,7 +371,7 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
         let mut spans = Vec::new();
         for col_idx in 0..grid_data.len() {
              let hours = grid_data[col_idx][row_idx];
-             let color = get_heat_color(hours);
+             let color = get_heat_color(hours, max_hours);
              spans.push(Span::styled("  ", Style::default().bg(color)));
         }
         grid_lines.push(Line::from(spans));
@@ -398,20 +380,30 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
     frame.render_widget(Paragraph::new(grid_lines), labels_vs_grid[1]);
 }
 
-fn get_heat_color(hours: f64) -> Color {
-    // RGB Gradient: Dark Gray -> Cyan/Teal
-    // Base (Empty): 30, 30, 30
-    // L1: 20, 60, 60
-    // L2: 30, 100, 100
-    // L3: 40, 160, 160
-    // L4: 50, 220, 220
+fn get_heat_color(hours: f64, max_hours: f64) -> Color {
+    // Relative scaling with Linear Interpolation (Lerp)
+    if hours <= 0.1 {
+        return Color::Rgb(30, 30, 30); // Background/Empty
+    }
+
+    let ratio = (hours / max_hours).clamp(0.0, 1.0);
     
-    if hours <= 0.1 { Color::Rgb(30, 30, 30) }
-    else if hours < 2.0 { Color::Rgb(22, 57, 57) }
-    else if hours < 4.0 { Color::Rgb(30, 93, 93) }
-    else if hours < 6.0 { Color::Rgb(39, 137, 137) }
-    else if hours < 8.0 { Color::Rgb(51, 182, 182) }
-    else { Color::Rgb(78, 222, 222) } // Max intensity
+    // Start Color (Low Activity): Deep Green/Teal (20, 60, 60)
+    // End Color (Max Activity): Bright Cyan (80, 255, 255)
+    
+    let start_r = 20.0;
+    let start_g = 60.0;
+    let start_b = 60.0;
+    
+    let end_r = 80.0;
+    let end_g = 255.0;
+    let end_b = 255.0;
+    
+    let r = start_r + (end_r - start_r) * ratio;
+    let g = start_g + (end_g - start_g) * ratio;
+    let b = start_b + (end_b - start_b) * ratio;
+    
+    Color::Rgb(r as u8, g as u8, b as u8)
 }
 
 fn draw_chart(frame: &mut Frame, history: &WeeklyHistory, area: Rect) {
