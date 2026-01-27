@@ -308,8 +308,13 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
         ])
         .split(grid_layout[1]);
 
-    // Let's reverse to get Jan -> Dec
-    let view_slice: Vec<&&WeeklyHistory> = histories.iter().rev().collect();
+    // Calculate how many weeks fit
+    // Width per week: 2 chars (block) + 1 char (gap) = 3 chars
+    let available_width = labels_vs_grid[1].width as usize; 
+    let weeks_to_show = (available_width / 3).min(52).min(histories.len());
+    
+    // Take 'weeks_to_show' from the FRONT (Newest) and then REVERSE to get Past->Present
+    let view_slice: Vec<&&WeeklyHistory> = histories.iter().take(weeks_to_show).rev().collect();
     
     // --- Draw Month Labels ---
     let mut month_spans = Vec::new();
@@ -329,9 +334,10 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
 
          if label_name != last_month && !label_name.is_empty() {
              last_month = label_name.to_string();
-             month_spans.push(Span::styled(format!("{:<2}", &label_name[0..2]), Style::default().fg(THEME.text)));
+             // Use 3 chars now: "Jan"
+             month_spans.push(Span::styled(format!("{:<3}", label_name), Style::default().fg(THEME.text)));
          } else {
-             month_spans.push(Span::raw("  "));
+             month_spans.push(Span::raw("   ")); // 3 spaces
          }
     }
     
@@ -372,7 +378,9 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
         for col_idx in 0..grid_data.len() {
              let hours = grid_data[col_idx][row_idx];
              let color = get_heat_color(hours, max_hours);
+             // Block "  " (2 chars) + Space " " (1 char) = 3 chars width
              spans.push(Span::styled("  ", Style::default().bg(color)));
+             spans.push(Span::raw(" "));
         }
         grid_lines.push(Line::from(spans));
     }
