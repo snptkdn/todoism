@@ -42,7 +42,8 @@ pub struct StatsApp {
 
 impl StatsApp {
     pub fn new(histories: Vec<WeeklyHistory>) -> Self {
-        let current_week_index = if histories.is_empty() { 0 } else { histories.len() - 1 };
+        // Start at 0 (Newest week) because histories are sorted Descending (Newest -> Oldest)
+        let current_week_index = 0;
         Self {
             histories,
             current_week_index,
@@ -104,8 +105,8 @@ where
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => break,
-                        KeyCode::Left | KeyCode::Char('h') => app.previous_week(),
-                        KeyCode::Right | KeyCode::Char('l') => app.next_week(),
+                        KeyCode::Left | KeyCode::Char('h') => app.next_week(),
+                        KeyCode::Right | KeyCode::Char('l') => app.previous_week(),
                         KeyCode::Tab => app.next_tab(),
                         _ => {}
                     }
