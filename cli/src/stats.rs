@@ -141,11 +141,14 @@ fn ui(frame: &mut Frame, app: &StatsApp) {
 
         for day in &history.days {
             // Act
-            bar_data.push((format!("{} A", day.day_of_week), (day.stats.total_act_hours * 10.0) as u64, Color::Green));
+            let act_val = day.stats.total_act_hours / 8.0;
+            bar_data.push((format!("{} A", day.day_of_week), (act_val * 10.0) as u64, Color::Green));
             // Est
-            bar_data.push((format!("{} E", day.day_of_week), (day.stats.total_est_hours * 10.0) as u64, Color::Blue));
+            let est_val = day.stats.total_est_hours / 8.0;
+            bar_data.push((format!("{} E", day.day_of_week), (est_val * 10.0) as u64, Color::Blue));
             // Mtg
-            bar_data.push((format!("{} M", day.day_of_week), (day.stats.meeting_hours * 10.0) as u64, Color::Red));
+            let mtg_val = day.stats.meeting_hours / 8.0;
+            bar_data.push((format!("{} M", day.day_of_week), (mtg_val * 10.0) as u64, Color::Red));
             
             // Spacer?
             bar_data.push(("".to_string(), 0, Color::Reset));
@@ -171,22 +174,22 @@ fn ui(frame: &mut Frame, app: &StatsApp) {
         }).collect();
 
         let chart = BarChart::default()
-            .block(Block::default().title("Daily Breakdown (A=Act, E=Est, M=Mtg)").borders(Borders::ALL))
+            .block(Block::default().title("Daily Breakdown (Days) (A=Act, E=Est, M=Mtg)").borders(Borders::ALL))
             .bar_width(5)
             .bar_gap(1)
             .data(BarGroup::default().bars(&bar_items))
-            .max(300); // 30.0 hours max?
+            .max(100); // 10.0 days max
 
         frame.render_widget(chart, chunks[1]);
         
         // Footer (Summary)
         let stats = &history.stats;
         let summary = format!(
-            "Total: Act {:.1}h | Est {:.1}h | Mtg {:.1}h | Total Work {:.1}h",
-            stats.total_act_hours,
-            stats.total_est_hours,
-            stats.meeting_hours,
-            stats.total_act_hours + stats.meeting_hours
+            "Total: Act {:.1}d | Est {:.1}d | Mtg {:.1}d | Total Work {:.1}d",
+            stats.total_act_hours / 8.0,
+            stats.total_est_hours / 8.0,
+            stats.meeting_hours / 8.0,
+            (stats.total_act_hours + stats.meeting_hours) / 8.0
         );
         let footer = Paragraph::new(summary)
             .block(Block::default().borders(Borders::ALL))

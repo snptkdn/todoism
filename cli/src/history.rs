@@ -15,9 +15,9 @@ struct HistoryRow {
     id: String,
     #[tabled(rename = "Description")]
     desc: String,
-    #[tabled(rename = "Est (h)")]
+    #[tabled(rename = "Est (d)")]
     est: String,
-    #[tabled(rename = "Act (h)")]
+    #[tabled(rename = "Act (d)")]
     act: String,
 }
 
@@ -31,23 +31,23 @@ pub fn show_history<R: TaskRepository, L: DailyLogRepository>(history_usecase: &
 
     for week_entry in weekly_history {
         // Print Week Header
-        println!("\n\x1b[1;36mWeek {}, {}\x1b[0m (Est: {:.1}h, Act: {:.1}h, Mtg: {:.1}h)", 
+        println!("\n\x1b[1;36mWeek {}, {}\x1b[0m (Est: {:.1}d, Act: {:.1}d, Mtg: {:.1}d)", 
                  week_entry.week, 
                  week_entry.year, 
-                 week_entry.stats.total_est_hours, 
-                 week_entry.stats.total_act_hours,
-                 week_entry.stats.meeting_hours);
+                 week_entry.stats.total_est_hours / 8.0, 
+                 week_entry.stats.total_act_hours / 8.0,
+                 week_entry.stats.meeting_hours / 8.0);
 
         // Construct Table Rows
         let mut rows = Vec::new();
 
         for day_entry in week_entry.days {
-            let day_header = format!("{} ({})\nE:{:.1}h A:{:.1}h M:{:.1}h",
+            let day_header = format!("{} ({})\nE:{:.1}d A:{:.1}d M:{:.1}d",
                 day_entry.date,
                 day_entry.day_of_week,
-                day_entry.stats.total_est_hours,
-                day_entry.stats.total_act_hours,
-                day_entry.stats.meeting_hours
+                day_entry.stats.total_est_hours / 8.0,
+                day_entry.stats.total_act_hours / 8.0,
+                day_entry.stats.meeting_hours / 8.0
             );
 
             // Sort tasks by ID for stability in display
@@ -59,7 +59,7 @@ pub fn show_history<R: TaskRepository, L: DailyLogRepository>(history_usecase: &
 
                 let est_str = task_dto.estimate.clone().unwrap_or_else(|| "-".to_string());
 
-                let act_str = format!("{:.1}", task_dto.accumulated_time as f64 / 3600.0);
+                let act_str = format!("{:.2}", (task_dto.accumulated_time as f64 / 3600.0) / 8.0);
                 
                 // Visual distinction for status
                 let desc_display = if task_dto.status == "Pending" {

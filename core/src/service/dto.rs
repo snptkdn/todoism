@@ -88,8 +88,15 @@ impl TaskDto {
                 
                 ("Pending", tracking, total, today_sum, None)
             },
-            TaskState::Completed { completed_at, time_logs, actual_duration } => {
-                let total = if !time_logs.is_empty() {
+            TaskState::Completed { completed_at, time_logs, actual } => {
+                let total = if let Some(act_str) = actual {
+                     // Try to parse as float days
+                     if let Ok(days) = act_str.parse::<f64>() {
+                         (days * 8.0 * 3600.0) as u64
+                     } else {
+                         0 
+                     }
+                } else if !time_logs.is_empty() {
                     let mut sum = 0;
                     for log in time_logs {
                          if let Some(end) = log.end {
@@ -100,17 +107,18 @@ impl TaskDto {
                     }
                     sum
                 } else {
-                    actual_duration.unwrap_or(0)
+                    0
                 };
                 
                 let today_sum = if !time_logs.is_empty() {
                     calc_today_time(time_logs)
                 } else {
-                    // Legacy: if completed today, attribute all duration? Or 0?
-                    // Let's say if completed_at is today, we count it.
+                    // Logic for manual entry attribution to today? 
+                    // If completed today, attribute it all? 
+                    // This is tricky without logs. For now, if no logs but completed today, count all.
                     let completed_local = DateTime::<Local>::from(*completed_at);
                     if completed_local.date_naive() == today {
-                         actual_duration.unwrap_or(0)
+                         total
                     } else {
                         0
                     }

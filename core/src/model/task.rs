@@ -32,9 +32,9 @@ pub enum TaskState {
         completed_at: DateTime<Utc>,
         #[serde(default)]
         time_logs: Vec<TimeLog>,
-        // Backwards compatibility for old data that only has actual_duration
+        // Changed from Option<u64> to Option<String> to support manual input
         #[serde(default)]
-        actual_duration: Option<u64>,
+        actual: Option<String>, 
     },
     Deleted,
 }
@@ -111,7 +111,7 @@ impl Task {
         }
     }
 
-    pub fn complete(&mut self) {
+    pub fn complete(&mut self, actual_effort: Option<String>) {
         if let TaskState::Completed { .. } = self.state {
             return;
         }
@@ -132,7 +132,7 @@ impl Task {
         self.state = TaskState::Completed {
             completed_at: Utc::now(),
             time_logs: logs,
-            actual_duration: None, // No longer needed for new completions
+            actual: actual_effort,
         };
     }
     

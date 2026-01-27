@@ -115,59 +115,51 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
 
 
 
-                                                                        KeyCode::Char(' ') | KeyCode::Enter => app.toggle_status(),
+                                                                                                            KeyCode::Char(' ') | KeyCode::Enter => app.toggle_status(),
 
 
 
-                                    
+                                                                                                            
 
 
 
-                                                                        KeyCode::Char('s') => app.toggle_tracking(),
+                                                                                                            KeyCode::Char('d') | KeyCode::Delete => app.delete_task(),
 
 
 
-                                    
+                                                                                                            KeyCode::Char('a') => app.enter_add_mode(),
 
 
 
-                                                                        KeyCode::Char('d') | KeyCode::Delete => app.delete_task(),
+                                                                                                            KeyCode::Char('m') => app.enter_modify_mode(),
 
 
 
-                                    KeyCode::Char('a') => app.enter_add_mode(),
+                                                                                                            _ => {}
 
 
 
-                                    KeyCode::Char('m') => app.enter_modify_mode(),
+                                                                                                        }
 
 
 
-                                    _ => {}
+                                                                                                    },
 
 
 
-                                }
+                                                                                                    InputMode::Adding | InputMode::Modifying | InputMode::MeetingHoursPrompt | InputMode::CompleteWithEffort => {
 
 
 
-                            },
+                                                                                                        match key.code {
 
 
 
-                            InputMode::Adding | InputMode::Modifying | InputMode::MeetingHoursPrompt => {
+                                                                                                            KeyCode::Enter => app.submit_command(),
 
 
 
-                                match key.code {
-
-
-
-                                    KeyCode::Enter => app.submit_command(),
-
-
-
-                                    KeyCode::Esc => app.exit_input_mode(),
+                                                                                                            KeyCode::Esc => app.exit_input_mode(),
 
 
 

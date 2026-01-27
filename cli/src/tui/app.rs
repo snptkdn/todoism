@@ -4,12 +4,14 @@ use todoism_core::{TaskService, DailyLogService, SortStrategy};
 use todoism_core::usecase::daily_plan::{DailyPlanUseCase, DailyPlanStats};
 use std::collections::HashMap;
 use chrono::Local;
+use uuid::Uuid;
 
 pub enum InputMode {
     Normal,
     Adding,
     Modifying,
     MeetingHoursPrompt,
+    CompleteWithEffort,
 }
 
 pub struct App {
@@ -20,6 +22,7 @@ pub struct App {
     pub input: String,
     pub input_mode: InputMode,
     pub cursor_position: usize,
+    pub task_id_for_prompt: Option<Uuid>,
     
     // Capacity Stats
     pub daily_stats: DailyPlanStats,
@@ -67,6 +70,7 @@ impl App {
             input: String::new(),
             input_mode,
             cursor_position: 0,
+            task_id_for_prompt: None,
             daily_stats,
         }
     }
@@ -106,22 +110,20 @@ impl App {
     pub fn toggle_status(&mut self) {
         if let Some(i) = self.state.selected() {
             if let Some(task) = self.tasks.get(i) {
-                let _ = self.service.toggle_status(&task.id);
-            }
-            self.reload_tasks();
-        }
-    }
-
-    pub fn toggle_tracking(&mut self) {
-        if let Some(i) = self.state.selected() {
-            if let Some(task) = self.tasks.get(i) {
-                if task.is_tracking {
-                    let _ = self.service.stop_task(&task.id);
+                // Since only Pending tasks are shown, we are completing it.
+                // If we ever show Completed tasks, we should check task.status here.
+                
+                self.input_mode = InputMode::CompleteWithEffort;
+                self.task_id_for_prompt = Some(task.id);
+                
+                if let Some(est) = &task.estimate {
+                    self.input = est.clone();
+                    self.cursor_position = self.input.len();
                 } else {
-                    let _ = self.service.start_task(&task.id);
+                    self.input.clear();
+                    self.cursor_position = 0;
                 }
             }
-            self.reload_tasks();
         }
     }
 
@@ -211,6 +213,7 @@ impl App {
             InputMode::Adding => self.submit_add(),
             InputMode::Modifying => self.submit_modify(),
             InputMode::MeetingHoursPrompt => self.submit_meeting_hours(),
+            InputMode::CompleteWithEffort => self.submit_complete_with_effort(),
             InputMode::Normal => {},
         }
 
@@ -290,6 +293,18 @@ impl App {
                  }
              }
              self.reload_tasks();
+        }
+    }
+
+    fn submit_complete_with_effort(&mut self) {
+        if let Some(id) = self.task_id_for_prompt {
+            let effort = self.input.trim().to_string();
+            // Even if empty, we might want to allow it? 
+            // The prompt defaults to estimate. If user clears it, maybe it means 0?
+            // Let's pass whatever string they gave.
+            let _ = self.service.complete_task_with_effort(&id, effort);
+            self.task_id_for_prompt = None;
+            self.reload_tasks();
         }
     }
 

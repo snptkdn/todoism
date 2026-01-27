@@ -1,11 +1,10 @@
 use crate::model::task::{Task, Priority, TaskState};
 use crate::repository::TaskRepository;
-use crate::time::parse_duration;
+
 use crate::service::dto::TaskDto;
-use chrono::{Utc, Datelike, Local, NaiveDate, DateTime};
+use chrono::Utc;
 use anyhow::Result;
 use uuid::Uuid;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SortStrategy {
@@ -86,7 +85,14 @@ impl<R: TaskRepository> TaskService<R> {
 
     pub fn complete_task(&self, id: &Uuid) -> Result<()> {
         let mut task = self.repo.get(id)?;
-        task.complete();
+        task.complete(None);
+        self.repo.update(&task)
+    }
+
+    pub fn complete_task_with_effort(&self, id: &Uuid, effort: String) -> Result<()> {
+        let mut task = self.repo.get(id)?;
+        let effort_opt = if effort.trim().is_empty() { None } else { Some(effort) };
+        task.complete(effort_opt);
         self.repo.update(&task)
     }
 
@@ -95,7 +101,7 @@ impl<R: TaskRepository> TaskService<R> {
         if matches!(task.state, TaskState::Completed { .. }) {
              task.reopen();
         } else {
-             task.complete();
+             task.complete(None);
         }
         self.repo.update(&task)
     }
@@ -112,6 +118,7 @@ impl<R: TaskRepository> TaskService<R> {
 pub fn parse_est_hours(est_opt: &Option<String>) -> f64 {
     est_opt.as_ref()
         .and_then(|s| s.parse::<f64>().ok())
+        .map(|days| days * 8.0)
         .unwrap_or(0.0)
 }
 
@@ -192,16 +199,16 @@ fn calculate_urgency(task: &Task) -> f64 {
         score += age_score.min(COEFFICIENT_AGE);
     }
 
-    if let Some(est_str) = &task.estimate {
-        if let Ok(duration) = parse_duration(est_str) {
-            let minutes = duration.num_minutes();
-            if minutes > 0 && minutes <= 30 {
-                score += COEFFICIENT_ESTIMATE;
-            } else if minutes <= 60 {
-                score += COEFFICIENT_ESTIMATE * 0.5;
-            } else if minutes <= 120 {
-                score += COEFFICIENT_ESTIMATE * 0.2;
-            }
+    // Estimate scoring
+    let est_hours = parse_est_hours(&task.estimate);
+    if est_hours > 0.0 {
+        let minutes = est_hours * 60.0;
+        if minutes <= 30.0 {
+            score += COEFFICIENT_ESTIMATE;
+        } else if minutes <= 60.0 {
+            score += COEFFICIENT_ESTIMATE * 0.5;
+        } else if minutes <= 120.0 {
+            score += COEFFICIENT_ESTIMATE * 0.2;
         }
     }
 

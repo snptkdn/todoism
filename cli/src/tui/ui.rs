@@ -89,6 +89,22 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 )
             );
         },
+        InputMode::CompleteWithEffort => {
+             let input = Paragraph::new(app.input.as_str())
+                .style(Style::default().fg(Color::Cyan))
+                .block(Block::default().borders(Borders::ALL).title(" Actual Effort "))
+                .alignment(Alignment::Left);
+            f.render_widget(input, footer_chunk);
+            
+            // Cursor
+            let cursor_x = app.input.chars().take(app.cursor_position).collect::<String>().width() as u16;
+            f.set_cursor_position(
+                (
+                    footer_chunk.x + 1 + cursor_x,
+                    footer_chunk.y + 1,
+                )
+            );
+        },
         InputMode::MeetingHoursPrompt => {
             // ... copy existing logic ...
             // Wait, I should not delete the existing logic. I'll just use the old code for the prompt since it renders on top.

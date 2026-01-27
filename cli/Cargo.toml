@@ -12,3 +12,4 @@ ratatui = "0.30.0"
 tabled = "0.20.0"
 todoism-core = { path = "../core" }
 unicode-width = "0.2.2"
+uuid = { version = "1.20.0", features = ["v4", "serde"] }

@@ -40,7 +40,7 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
             let task_dto = TaskDto::from_entity((*task).clone(), 0.0);
             
             match &task.state {
-                TaskState::Completed { completed_at, actual_duration, time_logs } => {
+                TaskState::Completed { completed_at, actual, time_logs } => {
                      let local_dt: DateTime<Local> = DateTime::from(*completed_at);
                      let date = local_dt.date_naive();
                      let iso = local_dt.iso_week();
@@ -54,8 +54,10 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
                      
                      // Distribute logs
                      if time_logs.is_empty() {
-                         if let Some(dur) = actual_duration {
-                             entry.2 += *dur as f64 / 3600.0;
+                         if let Some(act_str) = actual {
+                             if let Ok(days) = act_str.parse::<f64>() {
+                                 entry.2 += days * 8.0;
+                             }
                          }
                      } else {
                          distribute_logs(time_logs, &mut weekly_data);
