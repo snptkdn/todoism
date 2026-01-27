@@ -187,12 +187,12 @@ mod tests {
         }
         
         // 4. Complete task (should auto-stop and switch state)
-        task.complete();
+        task.complete(None);
         
-        if let TaskState::Completed { time_logs, actual_duration, completed_at: _ } = &task.state {
+        if let TaskState::Completed { time_logs, actual, completed_at: _ } = &task.state {
             assert!(!time_logs.is_empty(), "Time logs should be preserved");
             assert_eq!(time_logs.len(), 2); 
-            assert!(actual_duration.is_none(), "New completions should not set actual_duration");
+            assert!(actual.is_none(), "New completions should not set actual_duration");
         } else {
             panic!("Task should be Completed");
         }

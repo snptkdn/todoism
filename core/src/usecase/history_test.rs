@@ -45,9 +45,9 @@ mod tests {
         };
         
         task.state = TaskState::Completed {
-            completed_at: now,
+            completed_at: Utc::now(),
             time_logs: vec![log1, log2],
-            actual_duration: None,
+            actual: None,
         };
 
         let task_repo = MockTaskRepo { tasks: vec![task] };

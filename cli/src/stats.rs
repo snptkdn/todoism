@@ -7,17 +7,19 @@ use crossterm::{
 };
 use ratatui::{
     prelude::*,
-    widgets::{BarChart, Block, Borders, Paragraph},
+    widgets::{BarChart, Block, Borders, Paragraph, BorderType},
 };
 use todoism_core::{
     repository::{DailyLogRepository, TaskRepository},
     service::{daily_log_service::DailyLogService, dto::WeeklyHistory},
     usecase::history::HistoryUseCase,
 };
+use chrono::{Datelike, Local, NaiveDate};
 
 pub struct StatsApp {
     pub histories: Vec<WeeklyHistory>,
     pub current_week_index: usize, // 0 = oldest, len-1 = newest (current)
+    pub today: NaiveDate,
 }
 
 impl StatsApp {
@@ -26,6 +28,7 @@ impl StatsApp {
         Self {
             histories,
             current_week_index,
+            today: Local::now().date_naive(),
         }
     }
 
@@ -55,11 +58,6 @@ where
     let usecase = HistoryUseCase::new(task_repo, daily_log_service);
     let histories = usecase.get_weekly_history()?;
     
-    if histories.is_empty() {
-        println!("No history data available.");
-        return Ok(());
-    }
-
     // Terminal setup
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -100,14 +98,15 @@ fn ui(frame: &mut Frame, app: &StatsApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Header
-            Constraint::Min(0),    // Chart
-            Constraint::Length(3), // Footer
+            Constraint::Length(3),        // Header
+            Constraint::Percentage(50),   // Chart
+            Constraint::Percentage(40),   // Heatmap
+            Constraint::Length(1),        // Footer
         ])
         .split(frame.area());
 
+    // --- Header ---
     if let Some(history) = app.current_data() {
-        // Header
         let title = format!("Stats: Week {} of {} (Use <Left>/<Right> to navigate)", history.week, history.year);
         let header = Paragraph::new(title)
             .block(Block::default().borders(Borders::ALL).title(" Todoism Stats "))
@@ -115,30 +114,9 @@ fn ui(frame: &mut Frame, app: &StatsApp) {
             .alignment(Alignment::Center);
         frame.render_widget(header, chunks[0]);
 
-        // Content (Chart)
-        // Group bars by day. Ratatui BarChart doesn't support grouped bars natively well in simple mode,
-        // but we can show Act vs Est vs Mtg.
-        // Let's create a combined view or separated. 
-        // For TUI "wow", maybe 3 separate charts or one mixed?
-        // Let's try one bar chart that shows Total Work (Act + Mtg) vs Estimate?
-        // Or maybe just Act, Est, Mtg side by side is hard.
-        // Let's do a Stacked Bar Chart manually or just discrete bars for "Act" and "Mtg".
-        // 
-        // Better: 3 datasets? Ratatui 0.28+ has BarChart::data(Grouped).
-        // Let's stick to simple BarChart for now, maybe just showing "Act" (Green) and "Mtg" (Red) stacked?
-        // Actually, let's just show "Actual Work" (Act+Mtg) vs "Estimate" bars side by side?
-        // No, user wants Act, Est, Mtg relation.
-        // 
-        // Let's map each day to 3 bars: e.g. "Mon A", "Mon E", "Mon M". 
-        // Labels: "Mo-A", "Mo-E", "Mo-M".
-        
+        // --- Bar Chart ---
         // Prepare data
-        // We will construct a Vec<String> to hold labels alive.
-        
-        // Prepare data
-        // We need to keep labels alive.
         let mut bar_data = Vec::new();
-
         for day in &history.days {
             // Act
             let act_val = day.stats.total_act_hours / 8.0;
@@ -150,56 +128,153 @@ fn ui(frame: &mut Frame, app: &StatsApp) {
             let mtg_val = day.stats.meeting_hours / 8.0;
             bar_data.push((format!("{} M", day.day_of_week), (mtg_val * 10.0) as u64, Color::Red));
             
-            // Spacer?
             bar_data.push(("".to_string(), 0, Color::Reset));
         }
 
-        // Convert to what BarChart expects
-        // BarChart::default().data(&[("Label", value), ...])
-        // But we want colors. 
-        // Ratatui BarChart allows setting styles for bars. But to have different colors per bar?
-        // The standard BarChart applies one style.
-        // We might need `Bar::default().value(...).style(...)` if using the new API.
-        // Ratatui 0.30 should support `BarGroup` or `Bar`.
-        
-        // Use explicit types from widgets module
         use ratatui::widgets::{Bar, BarGroup};
-        
         let bar_items: Vec<Bar> = bar_data.iter().map(|(label, value, color)| {
             Bar::default()
                 .label(label.as_str())
                 .value(*value)
                 .style(Style::default().fg(*color))
-                .text_value(format!("{:.1}", *value as f64 / 10.0)) // Show real float value
+                .text_value(format!("{:.1}", *value as f64 / 10.0)) 
         }).collect();
 
         let chart = BarChart::default()
-            .block(Block::default().title("Daily Breakdown (Days) (A=Act, E=Est, M=Mtg)").borders(Borders::ALL))
-            .bar_width(5)
+            .block(Block::default().title(" Weekly Breakdown (Days) (A=Act, E=Est, M=Mtg) ").borders(Borders::ALL))
+            .bar_width(4)
             .bar_gap(1)
             .data(BarGroup::default().bars(&bar_items))
-            .max(100); // 10.0 days max
+            .max(100); 
 
         frame.render_widget(chart, chunks[1]);
         
-        // Footer (Summary)
-        let stats = &history.stats;
-        let summary = format!(
-            "Total: Act {:.1}d | Est {:.1}d | Mtg {:.1}d | Total Work {:.1}d",
-            stats.total_act_hours / 8.0,
-            stats.total_est_hours / 8.0,
-            stats.meeting_hours / 8.0,
-            (stats.total_act_hours + stats.meeting_hours) / 8.0
-        );
-        let footer = Paragraph::new(summary)
-            .block(Block::default().borders(Borders::ALL))
-            .style(Style::default().fg(Color::Yellow));
-        frame.render_widget(footer, chunks[2]);
-
     } else {
         frame.render_widget(
-            Paragraph::new("No data").block(Block::default().borders(Borders::ALL)),
-            chunks[0],
+            Paragraph::new("No data available for chart").block(Block::default().borders(Borders::ALL)),
+            chunks[1],
         );
     }
+
+    // --- Heatmap (Contribution Graph) ---
+    draw_heatmap(frame, app, chunks[2]);
+
+    // --- Footer ---
+    let footer_text = "q: Quit | <Left>/<Right>: Navigate Weeks";
+    let footer = Paragraph::new(footer_text)
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center);
+    frame.render_widget(footer, chunks[3]);
+}
+
+fn draw_heatmap(f: &mut Frame, app: &StatsApp, area: Rect) {
+    let block = Block::default()
+        .title(" Activity Heatmap (Last 6 Months) ")
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded);
+    
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
+    // Flatten history data into a simple lookup: Date -> Activity Score
+    // Activity Score = ActHours + MtgHours
+    let mut activity_map = std::collections::HashMap::new();
+    for wh in &app.histories {
+        for dh in &wh.days {
+            if let Ok(date) = NaiveDate::parse_from_str(&dh.date, "%Y-%m-%d") {
+                let score = dh.stats.total_act_hours + dh.stats.meeting_hours;
+                activity_map.insert(date, score);
+            }
+        }
+    }
+
+    // Determine date range: [Today - 25 weeks, Today]
+    // 26 weeks cover approx 6 months.
+    let weeks_to_show = 26; // Roughly fits in typical terminal width
+    let today = app.today;
+    // Align end date to end of week (Saturday or Sunday) for clean grid? 
+    // Or just align relative to today.
+    // Let's mimic GitHub: Columns are weeks. Rows are Mon-Sun.
+    // X-axis: Weeks.
+    // Y-axis: Mon(0) - Sun(6).
+    
+    // Find the Monday of the week 25 weeks ago.
+    // chrono::Weekday::Mon
+    let current_weekday_idx = today.weekday().num_days_from_monday(); // Mon=0, Sun=6
+    let start_of_current_week = today - chrono::Duration::days(current_weekday_idx as i64);
+    let start_date = start_of_current_week - chrono::Duration::weeks(weeks_to_show - 1);
+
+    // We will render text cells.
+    // Each cell is roughly 2 chars wide: "■ "
+    
+    // Day labels
+    let day_labels = ["Mon", "", "Wed", "", "Fri", "", "Sun"];
+    
+    // We construct the grid column by column (week by week)
+    // But Ratatui renders by Row (Line).
+    // So we need to iterate Weeks inside the Row generation, or build a buffer.
+    
+    // Let's build vectors of Spans for each row.
+    let mut row_spans: Vec<Vec<Span>> = vec![Vec::new(); 7];
+
+    // Prepend day labels
+    for i in 0..7 {
+        row_spans[i].push(Span::styled(format!("{:<4}", day_labels[i]), Style::default().fg(Color::DarkGray)));
+    }
+
+    for w in 0..weeks_to_show {
+        let week_start = start_date + chrono::Duration::weeks(w);
+        
+        for d in 0..7 {
+            let target_date = week_start + chrono::Duration::days(d);
+            
+            if target_date > today {
+                // Future days
+                row_spans[d as usize].push(Span::raw("  ")); 
+                continue;
+            }
+
+            let score = activity_map.get(&target_date).cloned().unwrap_or(0.0);
+            
+            // Color scale
+            let color = if score == 0.0 {
+                Color::DarkGray // Empty
+            } else if score < 2.0 {
+                Color::Indexed(22) // Dark Green
+            } else if score < 4.0 {
+                Color::Indexed(28) // Medium Green
+            } else if score < 6.0 {
+                Color::Indexed(34) // Green
+            } else {
+                Color::Indexed(40) // Bright Green
+            };
+            
+            // Symbol
+            let symbol = if score == 0.0 { "· " } else { "■ " };
+            
+            row_spans[d as usize].push(Span::styled(symbol, Style::default().fg(color)));
+        }
+    }
+
+    // Render rows
+    let constraints = vec![Constraint::Length(1); 7]; // 7 lines
+    let _ = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(inner_area);
+        
+    // Center the grid vertically if there is space
+    let vertical_padding = (inner_area.height.saturating_sub(7)) / 2;
+    let grid_area = Rect {
+        x: inner_area.x + 2, // Left padding
+        y: inner_area.y + vertical_padding,
+        width: inner_area.width.saturating_sub(2),
+        height: 7.min(inner_area.height),
+    };
+
+    // Since we computed spans for 7 rows, we just render them as Paragraphs or Lines.
+    // Easier: One Paragraph with 7 lines.
+    let lines: Vec<Line> = row_spans.into_iter().map(Line::from).collect();
+    let p = Paragraph::new(lines);
+    f.render_widget(p, grid_area);
 }
