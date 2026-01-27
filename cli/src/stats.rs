@@ -277,7 +277,7 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(THEME.muted))
-        .title(format!(" {} ", year)); // Year Title
+        .title(format!(" {} ", year)); 
     
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
@@ -290,16 +290,14 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
         ])
         .split(inner_area);
         
-    // Left column layout
     let day_labels_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-             Constraint::Length(1), // Spacer for Month Header
+             Constraint::Length(1), // Spacer
              Constraint::Min(1),    // Labels
         ])
         .split(grid_layout[0]);
         
-    // Right column layout
     let labels_vs_grid = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -308,12 +306,27 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
         ])
         .split(grid_layout[1]);
 
-    // Calculate how many weeks fit
-    // Width per week: 2 chars (block) + 1 char (gap) = 3 chars
-    let available_width = labels_vs_grid[1].width as usize; 
-    let weeks_to_show = (available_width / 3).min(52).min(histories.len());
+    // Adaptive Logic
+    let available_width = labels_vs_grid[1].width as usize;
     
-    // Take 'weeks_to_show' from the FRONT (Newest) and then REVERSE to get Past->Present
+    // Thresholds: 53 weeks needed.
+    // Standard (3 chars): 159 chars needed
+    // Compact (2 chars): 106 chars needed
+    // Tiny (1 char): 53 chars needed
+    
+    enum HeatmapMode { Standard, Compact, Tiny }
+    let mode = if available_width >= 160 { HeatmapMode::Standard } 
+               else if available_width >= 110 { HeatmapMode::Compact } 
+               else { HeatmapMode::Tiny };
+               
+    let cell_width = match mode {
+        HeatmapMode::Standard => 3,
+        HeatmapMode::Compact => 2,
+        HeatmapMode::Tiny => 1,
+    };
+    
+    let weeks_to_show = (available_width / cell_width).min(52).min(histories.len());
+    
     let view_slice: Vec<&&WeeklyHistory> = histories.iter().take(weeks_to_show).rev().collect();
     
     // --- Draw Month Labels ---
@@ -334,10 +347,18 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
 
          if label_name != last_month && !label_name.is_empty() {
              last_month = label_name.to_string();
-             // Use 3 chars now: "Jan"
-             month_spans.push(Span::styled(format!("{:<3}", label_name), Style::default().fg(THEME.text)));
+             
+             // Dynamic Label Truncation
+             // Standard: "Jan" (3)
+             // Compact: "Ja" (2)
+             // Tiny: "J" (1)
+             let label_len = label_name.len().min(cell_width);
+             let display_label = &label_name[..label_len];
+             
+             // Format with dynamic width padding
+             month_spans.push(Span::styled(format!("{:<w$}", display_label, w=cell_width), Style::default().fg(THEME.text)));
          } else {
-             month_spans.push(Span::raw("   ")); // 3 spaces
+             month_spans.push(Span::raw(" ".repeat(cell_width)));
          }
     }
     
@@ -378,9 +399,23 @@ fn draw_year_heatmap(frame: &mut Frame, year: i32, histories: &Vec<&WeeklyHistor
         for col_idx in 0..grid_data.len() {
              let hours = grid_data[col_idx][row_idx];
              let color = get_heat_color(hours, max_hours);
-             // Block "  " (2 chars) + Space " " (1 char) = 3 chars width
-             spans.push(Span::styled("  ", Style::default().bg(color)));
-             spans.push(Span::raw(" "));
+             
+             // Dynamic Cell Rendering
+             match mode {
+                 HeatmapMode::Standard => {
+                     // "  " + " "
+                     spans.push(Span::styled("  ", Style::default().bg(color)));
+                     spans.push(Span::raw(" "));
+                 },
+                 HeatmapMode::Compact => {
+                     // "  " (No gap)
+                     spans.push(Span::styled("  ", Style::default().bg(color)));
+                 },
+                 HeatmapMode::Tiny => {
+                     // " " (Small block, no gap)
+                     spans.push(Span::styled(" ", Style::default().bg(color)));
+                 }
+             }
         }
         grid_lines.push(Line::from(spans));
     }
