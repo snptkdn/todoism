@@ -119,7 +119,7 @@ impl<'a, R: TaskRepository, L: DailyLogRepository> HistoryUseCase<'a, R, L> {
         for (year, week) in sorted_weeks {
             let days_map = weekly_data.get(&(year, week)).unwrap();
             let mut sorted_days: Vec<_> = days_map.keys().cloned().collect();
-            sorted_days.sort_by(|a, b| b.cmp(a));
+            sorted_days.sort_by(|a, b| a.cmp(b));
             
             let mut daily_histories = Vec::new();
             let mut week_est = 0.0;
