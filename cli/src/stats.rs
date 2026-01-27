@@ -169,15 +169,14 @@ fn ui(frame: &mut Frame, app: &StatsApp) {
 
 fn draw_heatmap(f: &mut Frame, app: &StatsApp, area: Rect) {
     let block = Block::default()
-        .title(" Activity Heatmap (Last 6 Months) ")
+        .title(" Weekly Activity Log (Last 12 Weeks) ")
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded);
     
     let inner_area = block.inner(area);
     f.render_widget(block, area);
 
-    // Flatten history data into a simple lookup: Date -> Activity Score
-    // Activity Score = ActHours + MtgHours
+    // Data Preparation
     let mut activity_map = std::collections::HashMap::new();
     for wh in &app.histories {
         for dh in &wh.days {
@@ -188,56 +187,43 @@ fn draw_heatmap(f: &mut Frame, app: &StatsApp, area: Rect) {
         }
     }
 
-    // Determine date range: [Today - 25 weeks, Today]
-    // 26 weeks cover approx 6 months.
-    let weeks_to_show = 26; // Roughly fits in typical terminal width
+    let weeks_to_show = 12; 
     let today = app.today;
-    // Align end date to end of week (Saturday or Sunday) for clean grid? 
-    // Or just align relative to today.
-    // Let's mimic GitHub: Columns are weeks. Rows are Mon-Sun.
-    // X-axis: Weeks.
-    // Y-axis: Mon(0) - Sun(6).
     
-    // Find the Monday of the week 25 weeks ago.
-    // chrono::Weekday::Mon
-    let current_weekday_idx = today.weekday().num_days_from_monday(); // Mon=0, Sun=6
+    // Calculate start of current week (Monday)
+    let current_weekday_idx = today.weekday().num_days_from_monday(); 
     let start_of_current_week = today - chrono::Duration::days(current_weekday_idx as i64);
-    let start_date = start_of_current_week - chrono::Duration::weeks(weeks_to_show - 1);
 
-    // We will render text cells.
-    // Each cell is roughly 2 chars wide: "■ "
+    // Build rows (Top = Current Week, Down = Past Weeks)
+    // We want headers: "Week Of | Mon Tue Wed Thu Fri Sat Sun | Total"
     
-    // Day labels
-    let day_labels = ["Mon", "", "Wed", "", "Fri", "", "Sun"];
+    use ratatui::widgets::{Table, Row};
     
-    // We construct the grid column by column (week by week)
-    // But Ratatui renders by Row (Line).
-    // So we need to iterate Weeks inside the Row generation, or build a buffer.
+    let header_cells = ["Week Starting", "Mon Tue Wed Thu Fri Sat Sun", "Total"];
+    let header = Row::new(header_cells)
+        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        .bottom_margin(1);
     
-    // Let's build vectors of Spans for each row.
-    let mut row_spans: Vec<Vec<Span>> = vec![Vec::new(); 7];
-
-    // Prepend day labels
-    for i in 0..7 {
-        row_spans[i].push(Span::styled(format!("{:<4}", day_labels[i]), Style::default().fg(Color::DarkGray)));
-    }
+    let mut rows = Vec::new();
 
     for w in 0..weeks_to_show {
-        let week_start = start_date + chrono::Duration::weeks(w);
+        // Go backwards: 0 = This week, 1 = Last week...
+        let week_start = start_of_current_week - chrono::Duration::weeks(w as i64);
+        
+        let label = week_start.format("%Y-%m-%d").to_string();
+        
+        // Build the 7-day visualization
+        let mut day_cells = Vec::new();
+        let mut weekly_total = 0.0;
         
         for d in 0..7 {
             let target_date = week_start + chrono::Duration::days(d);
-            
-            if target_date > today {
-                // Future days
-                row_spans[d as usize].push(Span::raw("  ")); 
-                continue;
-            }
-
             let score = activity_map.get(&target_date).cloned().unwrap_or(0.0);
+            weekly_total += score;
             
-            // Color scale
-            let color = if score == 0.0 {
+            let color = if target_date > today {
+                Color::DarkGray // Future
+            } else if score == 0.0 {
                 Color::DarkGray // Empty
             } else if score < 2.0 {
                 Color::Indexed(22) // Dark Green
@@ -249,32 +235,33 @@ fn draw_heatmap(f: &mut Frame, app: &StatsApp, area: Rect) {
                 Color::Indexed(40) // Bright Green
             };
             
-            // Symbol
-            let symbol = if score == 0.0 { "· " } else { "■ " };
-            
-            row_spans[d as usize].push(Span::styled(symbol, Style::default().fg(color)));
+            // Wider symbols for better spacing
+            let symbol = if target_date > today { " ·  " } else if score == 0.0 { " ·  " } else { " ■  " };
+            day_cells.push(Span::styled(symbol, Style::default().fg(color)));
         }
+        
+        // Join day cells into one Line/Span for the column
+        let days_span = Line::from(day_cells);
+        
+        let total_label = format!("{:.1}h", weekly_total);
+        
+        rows.push(Row::new(vec![
+            ratatui::widgets::Cell::from(label),
+            ratatui::widgets::Cell::from(days_span),
+            ratatui::widgets::Cell::from(total_label),
+        ]));
     }
 
-    // Render rows
-    let constraints = vec![Constraint::Length(1); 7]; // 7 lines
-    let _ = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(constraints)
-        .split(inner_area);
-        
-    // Center the grid vertically if there is space
-    let vertical_padding = (inner_area.height.saturating_sub(7)) / 2;
-    let grid_area = Rect {
-        x: inner_area.x + 2, // Left padding
-        y: inner_area.y + vertical_padding,
-        width: inner_area.width.saturating_sub(2),
-        height: 7.min(inner_area.height),
-    };
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(12), // Date label
+            Constraint::Length(30), // Days grid (7 * 4 chars)
+            Constraint::Min(6),     // Total
+        ]
+    )
+    .header(header)
+    .column_spacing(2);
 
-    // Since we computed spans for 7 rows, we just render them as Paragraphs or Lines.
-    // Easier: One Paragraph with 7 lines.
-    let lines: Vec<Line> = row_spans.into_iter().map(Line::from).collect();
-    let p = Paragraph::new(lines);
-    f.render_widget(p, grid_area);
+    f.render_widget(table, inner_area);
 }
